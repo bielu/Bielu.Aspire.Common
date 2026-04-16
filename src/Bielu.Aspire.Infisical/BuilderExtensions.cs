@@ -14,11 +14,13 @@ public static class BuilderExtensions
     /// <param name="builder">The distributed application builder.</param>
     /// <param name="name">The resource name for the Infisical container.</param>
     /// <param name="port">Optional host port to map to Infisical's internal port (8080).</param>
+    /// <param name="imageTag">The Infisical Docker image tag. Defaults to <c>latest</c>.</param>
     /// <returns>A resource builder for the Infisical container.</returns>
     public static IResourceBuilder<ContainerResource> AddInfisical(
         this IDistributedApplicationBuilder builder,
         [ResourceName] string name = "infisical",
-        int? port = null)
+        int? port = null,
+        string imageTag = "latest")
     {
         ArgumentNullException.ThrowIfNull(builder);
 
@@ -47,7 +49,7 @@ public static class BuilderExtensions
         var siteUrl = infisicalConfig.GetValue<string>("SiteUrl") ?? "http://localhost:8080";
         var telemetryEnabled = infisicalConfig.GetValue<bool?>("TelemetryEnabled") ?? false;
 
-        var container = builder.AddContainer(name, "infisical/infisical", "latest")
+        var container = builder.AddContainer(name, "infisical/infisical", imageTag)
             .WithHttpEndpoint(port: port, targetPort: 8080, name: "http")
             .WithEnvironment("ENCRYPTION_KEY", encryptionKey)
             .WithEnvironment("AUTH_SECRET", authSecret)
@@ -62,17 +64,24 @@ public static class BuilderExtensions
     /// <summary>
     /// Adds an Infisical container along with its PostgreSQL and Redis dependencies.
     /// This is a convenience method that creates all three containers.
+    /// Infisical only supports PostgreSQL as its database engine.
     /// </summary>
     /// <param name="builder">The distributed application builder.</param>
     /// <param name="name">The resource name for the Infisical container.</param>
     /// <param name="port">Optional host port to map to Infisical's internal port (8080).</param>
+    /// <param name="imageTag">The Infisical Docker image tag. Defaults to <c>latest</c>.</param>
+    /// <param name="postgresImageTag">The PostgreSQL Docker image tag. Defaults to <c>14-alpine</c>.</param>
+    /// <param name="redisImageTag">The Redis Docker image tag. Defaults to <c>7-alpine</c>.</param>
     /// <returns>
     /// A tuple containing resource builders for the Infisical, PostgreSQL, and Redis containers.
     /// </returns>
     public static (IResourceBuilder<ContainerResource> infisical, IResourceBuilder<ContainerResource> postgres, IResourceBuilder<ContainerResource> redis) AddInfisicalWithDependencies(
         this IDistributedApplicationBuilder builder,
         [ResourceName] string name = "infisical",
-        int? port = null)
+        int? port = null,
+        string imageTag = "latest",
+        string postgresImageTag = "14-alpine",
+        string redisImageTag = "7-alpine")
     {
         ArgumentNullException.ThrowIfNull(builder);
 
@@ -82,13 +91,13 @@ public static class BuilderExtensions
         var dbPassword = infisicalConfig.GetValue<string>("Postgres:Password") ?? "infisical";
         var dbName = infisicalConfig.GetValue<string>("Postgres:Database") ?? "infisical";
 
-        var postgres = builder.AddContainer($"{name}-postgres", "postgres", "14-alpine")
+        var postgres = builder.AddContainer($"{name}-postgres", "postgres", postgresImageTag)
             .WithEnvironment("POSTGRES_USER", dbUser)
             .WithEnvironment("POSTGRES_PASSWORD", dbPassword)
             .WithEnvironment("POSTGRES_DB", dbName)
             .WithVolume($"{name}-postgres-data", "/var/lib/postgresql/data");
 
-        var redis = builder.AddContainer($"{name}-redis", "redis", "7-alpine")
+        var redis = builder.AddContainer($"{name}-redis", "redis", redisImageTag)
             .WithVolume($"{name}-redis-data", "/data");
 
         var encryptionKey = infisicalConfig.GetValue<string>("EncryptionKey")
@@ -107,7 +116,7 @@ public static class BuilderExtensions
         var dbConnectionUri = $"postgresql://{dbUser}:{dbPassword}@{name}-postgres:5432/{dbName}";
         var redisUrl = $"redis://{name}-redis:6379";
 
-        var infisical = builder.AddContainer(name, "infisical/infisical", "latest")
+        var infisical = builder.AddContainer(name, "infisical/infisical", imageTag)
             .WithHttpEndpoint(port: port, targetPort: 8080, name: "http")
             .WithEnvironment("ENCRYPTION_KEY", encryptionKey)
             .WithEnvironment("AUTH_SECRET", authSecret)
