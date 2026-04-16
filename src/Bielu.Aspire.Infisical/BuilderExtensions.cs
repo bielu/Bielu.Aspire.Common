@@ -138,23 +138,22 @@ public static class BuilderExtensions
     /// Use this overload to share a single cache and/or database instance across multiple services
     /// instead of creating dedicated containers for Infisical.
     /// The cache resource can be any Redis-compatible server such as Redis or Valkey.
+    /// Connection strings for PostgreSQL and cache are derived from the provided resources.
     /// </summary>
     /// <param name="builder">The distributed application builder.</param>
-    /// <param name="postgres">An existing PostgreSQL resource to use.</param>
-    /// <param name="cache">An existing Redis-compatible cache resource (Redis, Valkey, etc.) to use.</param>
+    /// <param name="postgres">An existing PostgreSQL resource whose connection string will be used for <c>DB_CONNECTION_URI</c>.</param>
+    /// <param name="cache">An existing Redis-compatible cache resource (Redis, Valkey, etc.) whose connection string will be used for <c>REDIS_URL</c>.</param>
     /// <param name="name">The resource name for the Infisical container.</param>
     /// <param name="port">Optional host port to map to Infisical's internal port (8080).</param>
     /// <param name="imageTag">The Infisical Docker image tag. Defaults to <c>latest</c>.</param>
-    /// <param name="cachePort">The port the cache resource listens on. Defaults to <c>6379</c>.</param>
     /// <returns>A resource builder for the Infisical container.</returns>
     public static IResourceBuilder<ContainerResource> AddInfisicalWithDependencies(
         this IDistributedApplicationBuilder builder,
-        IResourceBuilder<IResource> postgres,
-        IResourceBuilder<IResource> cache,
+        IResourceBuilder<IResourceWithConnectionString> postgres,
+        IResourceBuilder<IResourceWithConnectionString> cache,
         [ResourceName] string name = "infisical",
         int? port = null,
-        string imageTag = "latest",
-        int cachePort = 6379)
+        string imageTag = "latest")
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(postgres);
@@ -172,22 +171,15 @@ public static class BuilderExtensions
                              "Infisical:AuthSecret configuration is required. " +
                              "Generate one with: openssl rand -base64 32");
 
-        var dbUser = infisicalConfig.GetValue<string>("Postgres:User") ?? "infisical";
-        var dbPassword = infisicalConfig.GetValue<string>("Postgres:Password") ?? "infisical";
-        var dbName = infisicalConfig.GetValue<string>("Postgres:Database") ?? "infisical";
-
         var siteUrl = infisicalConfig.GetValue<string>("SiteUrl") ?? "http://localhost:8080";
         var telemetryEnabled = infisicalConfig.GetValue<bool?>("TelemetryEnabled") ?? false;
-
-        var dbConnectionUri = $"postgresql://{dbUser}:{dbPassword}@{postgres.Resource.Name}:5432/{dbName}";
-        var redisUrl = $"redis://{cache.Resource.Name}:{cachePort}";
 
         var infisical = builder.AddContainer(name, "infisical/infisical", imageTag)
             .WithHttpEndpoint(port: port, targetPort: 8080, name: "http")
             .WithEnvironment("ENCRYPTION_KEY", encryptionKey)
             .WithEnvironment("AUTH_SECRET", authSecret)
-            .WithEnvironment("DB_CONNECTION_URI", dbConnectionUri)
-            .WithEnvironment("REDIS_URL", redisUrl)
+            .WithEnvironment("DB_CONNECTION_URI", postgres)
+            .WithEnvironment("REDIS_URL", cache)
             .WithEnvironment("SITE_URL", siteUrl)
             .WithEnvironment("TELEMETRY_ENABLED", telemetryEnabled.ToString().ToLowerInvariant())
             .WaitFor(postgres)
