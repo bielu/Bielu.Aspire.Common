@@ -13,6 +13,7 @@ A collection of common extensions and resources for .NET Aspire in the Bielu eco
 | [Bielu.Aspire.Common](https://www.nuget.org/packages/Bielu.Aspire.Common) | Common Aspire hosting extensions (reverse proxy endpoint configuration) |
 | [Bielu.Aspire.Resources](https://www.nuget.org/packages/Bielu.Aspire.Resources) | Custom Aspire resources (file store with bind mount and volume support) |
 | [Bielu.Aspire.OnePassword](https://www.nuget.org/packages/Bielu.Aspire.OnePassword) | 1Password Connect integration for Aspire |
+| [Bielu.Aspire.Infisical](https://www.nuget.org/packages/Bielu.Aspire.Infisical) | Infisical secrets management integration for Aspire |
 
 ## Installation
 
@@ -20,6 +21,7 @@ A collection of common extensions and resources for .NET Aspire in the Bielu eco
 dotnet add package Bielu.Aspire.Common
 dotnet add package Bielu.Aspire.Resources
 dotnet add package Bielu.Aspire.OnePassword
+dotnet add package Bielu.Aspire.Infisical
 ```
 
 ## Usage
@@ -42,6 +44,51 @@ Add 1Password Connect API and Sync containers to your Aspire app host:
 var (syncApi, connectApi) = builder.AddOnePasswordConnect();
 ```
 
+### Infisical Secrets Management
+
+Add a self-hosted [Infisical](https://infisical.com/) secrets management container with dedicated PostgreSQL and Redis/Valkey dependencies.
+
+#### With Redis (default cache)
+
+```csharp
+var (infisical, db, redis) = builder.AddInfisicalWithDependencies("infisical");
+```
+
+#### With Valkey cache
+
+```csharp
+var (infisical, db, valkey) = builder.AddInfisicalWithValkeyDependencies("infisical");
+```
+
+#### Using existing resources
+
+Share PostgreSQL and cache instances across services:
+
+```csharp
+var redis = builder.AddRedis("redis");
+var postgres = builder.AddPostgres("postgres").AddDatabase("mydb");
+var infisical = builder.AddInfisicalWithDependencies(postgres, redis);
+```
+
+#### Standalone (all config via `Infisical:*` section)
+
+```csharp
+var infisical = builder.AddInfisical("infisical");
+```
+
+#### Configuration
+
+The following configuration keys are read from the `Infisical` section (e.g. `appsettings.json` or user secrets):
+
+| Key | Required | Default |
+|-----|----------|---------|
+| `EncryptionKey` | ✓ | — |
+| `AuthSecret` | ✓ | — |
+| `DbConnectionUri` | ✓ (standalone only) | — |
+| `RedisUrl` | ✓ (standalone only) | — |
+| `SiteUrl` | | `http://localhost:8080` |
+| `TelemetryEnabled` | | `false` |
+
 ### Reverse Proxy Endpoint Hostname
 
 Override the target hostname for an existing endpoint:
@@ -55,7 +102,7 @@ builder.AddProject<MyProject>("my-project")
 ## Requirements
 
 - .NET 10.0 or later
-- .NET Aspire 13.0 or later
+- .NET Aspire 13.2 or later
 
 ## Building
 
