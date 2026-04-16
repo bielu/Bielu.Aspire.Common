@@ -4,7 +4,10 @@
     <CentralPackageTransitivePinningEnabled>false</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
   <ItemGroup>
-    <PackageVersion Include="Aspire.Hosting" Version="13.0.0" />
+    <PackageVersion Include="Aspire.Hosting" Version="13.2.2" />
+    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.2.2" />
+    <PackageVersion Include="Aspire.Hosting.Redis" Version="13.2.2" />
+    <PackageVersion Include="Aspire.Hosting.Valkey" Version="13.2.2" />
     <PackageVersion Include="Bielu.Common.Kiota" Version="1.0.0-beta.638962526632712959" />
     <PackageVersion Include="Bielu.Forms.Umbraco.Licensing" Version="1.0.0-beta.638961648445457506" />
     <PackageVersion Include="bielu.SchemaGenerator.Build" Version="1.0.3" />
