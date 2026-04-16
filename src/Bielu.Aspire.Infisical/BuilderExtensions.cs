@@ -1,0 +1,123 @@
+﻿using Aspire.Hosting;
+using Aspire.Hosting.ApplicationModel;
+using Microsoft.Extensions.Configuration;
+
+namespace Bielu.Aspire.Infisical;
+
+public static class BuilderExtensions
+{
+    /// <summary>
+    /// Adds an Infisical secrets management container to the distributed application.
+    /// Requires PostgreSQL and Redis connection details to be configured via the
+    /// <c>Infisical</c> configuration section, or provided as parameters.
+    /// </summary>
+    /// <param name="builder">The distributed application builder.</param>
+    /// <param name="name">The resource name for the Infisical container.</param>
+    /// <param name="port">Optional host port to map to Infisical's internal port (8080).</param>
+    /// <returns>A resource builder for the Infisical container.</returns>
+    public static IResourceBuilder<ContainerResource> AddInfisical(
+        this IDistributedApplicationBuilder builder,
+        [ResourceName] string name = "infisical",
+        int? port = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        var infisicalConfig = builder.Configuration.GetSection("Infisical");
+
+        var encryptionKey = infisicalConfig.GetValue<string>("EncryptionKey")
+                            ?? throw new InvalidOperationException(
+                                "Infisical:EncryptionKey configuration is required. " +
+                                "Generate one with: openssl rand -hex 16");
+
+        var authSecret = infisicalConfig.GetValue<string>("AuthSecret")
+                         ?? throw new InvalidOperationException(
+                             "Infisical:AuthSecret configuration is required. " +
+                             "Generate one with: openssl rand -base64 32");
+
+        var dbConnectionUri = infisicalConfig.GetValue<string>("DbConnectionUri")
+                              ?? throw new InvalidOperationException(
+                                  "Infisical:DbConnectionUri configuration is required. " +
+                                  "Example: postgresql://user:password@host:5432/infisical");
+
+        var redisUrl = infisicalConfig.GetValue<string>("RedisUrl")
+                       ?? throw new InvalidOperationException(
+                           "Infisical:RedisUrl configuration is required. " +
+                           "Example: redis://host:6379");
+
+        var siteUrl = infisicalConfig.GetValue<string>("SiteUrl") ?? "http://localhost:8080";
+        var telemetryEnabled = infisicalConfig.GetValue<bool?>("TelemetryEnabled") ?? false;
+
+        var container = builder.AddContainer(name, "infisical/infisical", "latest")
+            .WithHttpEndpoint(port: port, targetPort: 8080, name: "http")
+            .WithEnvironment("ENCRYPTION_KEY", encryptionKey)
+            .WithEnvironment("AUTH_SECRET", authSecret)
+            .WithEnvironment("DB_CONNECTION_URI", dbConnectionUri)
+            .WithEnvironment("REDIS_URL", redisUrl)
+            .WithEnvironment("SITE_URL", siteUrl)
+            .WithEnvironment("TELEMETRY_ENABLED", telemetryEnabled.ToString().ToLowerInvariant());
+
+        return container;
+    }
+
+    /// <summary>
+    /// Adds an Infisical container along with its PostgreSQL and Redis dependencies.
+    /// This is a convenience method that creates all three containers.
+    /// </summary>
+    /// <param name="builder">The distributed application builder.</param>
+    /// <param name="name">The resource name for the Infisical container.</param>
+    /// <param name="port">Optional host port to map to Infisical's internal port (8080).</param>
+    /// <returns>
+    /// A tuple containing resource builders for the Infisical, PostgreSQL, and Redis containers.
+    /// </returns>
+    public static (IResourceBuilder<ContainerResource> infisical, IResourceBuilder<ContainerResource> postgres, IResourceBuilder<ContainerResource> redis) AddInfisicalWithDependencies(
+        this IDistributedApplicationBuilder builder,
+        [ResourceName] string name = "infisical",
+        int? port = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        var infisicalConfig = builder.Configuration.GetSection("Infisical");
+
+        var dbUser = infisicalConfig.GetValue<string>("Postgres:User") ?? "infisical";
+        var dbPassword = infisicalConfig.GetValue<string>("Postgres:Password") ?? "infisical";
+        var dbName = infisicalConfig.GetValue<string>("Postgres:Database") ?? "infisical";
+
+        var postgres = builder.AddContainer($"{name}-postgres", "postgres", "14-alpine")
+            .WithEnvironment("POSTGRES_USER", dbUser)
+            .WithEnvironment("POSTGRES_PASSWORD", dbPassword)
+            .WithEnvironment("POSTGRES_DB", dbName)
+            .WithVolume($"{name}-postgres-data", "/var/lib/postgresql/data");
+
+        var redis = builder.AddContainer($"{name}-redis", "redis", "7-alpine")
+            .WithVolume($"{name}-redis-data", "/data");
+
+        var encryptionKey = infisicalConfig.GetValue<string>("EncryptionKey")
+                            ?? throw new InvalidOperationException(
+                                "Infisical:EncryptionKey configuration is required. " +
+                                "Generate one with: openssl rand -hex 16");
+
+        var authSecret = infisicalConfig.GetValue<string>("AuthSecret")
+                         ?? throw new InvalidOperationException(
+                             "Infisical:AuthSecret configuration is required. " +
+                             "Generate one with: openssl rand -base64 32");
+
+        var siteUrl = infisicalConfig.GetValue<string>("SiteUrl") ?? "http://localhost:8080";
+        var telemetryEnabled = infisicalConfig.GetValue<bool?>("TelemetryEnabled") ?? false;
+
+        var dbConnectionUri = $"postgresql://{dbUser}:{dbPassword}@{name}-postgres:5432/{dbName}";
+        var redisUrl = $"redis://{name}-redis:6379";
+
+        var infisical = builder.AddContainer(name, "infisical/infisical", "latest")
+            .WithHttpEndpoint(port: port, targetPort: 8080, name: "http")
+            .WithEnvironment("ENCRYPTION_KEY", encryptionKey)
+            .WithEnvironment("AUTH_SECRET", authSecret)
+            .WithEnvironment("DB_CONNECTION_URI", dbConnectionUri)
+            .WithEnvironment("REDIS_URL", redisUrl)
+            .WithEnvironment("SITE_URL", siteUrl)
+            .WithEnvironment("TELEMETRY_ENABLED", telemetryEnabled.ToString().ToLowerInvariant())
+            .WaitFor(postgres)
+            .WaitFor(redis);
+
+        return (infisical, postgres, redis);
+    }
+}
