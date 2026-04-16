@@ -62,73 +62,61 @@ public static class BuilderExtensions
     }
 
     /// <summary>
-    /// Adds an Infisical container along with its PostgreSQL and Redis-compatible cache dependencies.
-    /// This is a convenience method that creates all three containers.
-    /// Infisical only supports PostgreSQL as its database engine.
-    /// The cache engine can be any Redis-compatible server such as Redis or Valkey.
+    /// Adds an Infisical container along with dedicated PostgreSQL and Redis dependencies
+    /// using the proper Aspire resource types.
+    /// Connection strings are derived from the created resources at runtime.
     /// </summary>
     /// <param name="builder">The distributed application builder.</param>
     /// <param name="name">The resource name for the Infisical container.</param>
     /// <param name="port">Optional host port to map to Infisical's internal port (8080).</param>
     /// <param name="imageTag">The Infisical Docker image tag. Defaults to <c>latest</c>.</param>
-    /// <param name="postgresImageTag">The PostgreSQL Docker image tag. Defaults to <c>14-alpine</c>.</param>
-    /// <param name="cacheImage">The Docker image for the Redis-compatible cache engine (e.g. <c>redis</c>, <c>valkey/valkey</c>). Defaults to <c>redis</c>.</param>
-    /// <param name="cacheImageTag">The Docker image tag for the cache engine. Defaults to <c>7-alpine</c>.</param>
     /// <returns>
-    /// A tuple containing resource builders for the Infisical, PostgreSQL, and cache containers.
+    /// A tuple containing resource builders for the Infisical container, the PostgreSQL database, and the Redis cache.
     /// </returns>
-    public static (IResourceBuilder<ContainerResource> infisical, IResourceBuilder<ContainerResource> postgres, IResourceBuilder<ContainerResource> cache) AddInfisicalWithDependencies(
+    public static (IResourceBuilder<ContainerResource> infisical, IResourceBuilder<PostgresDatabaseResource> postgres, IResourceBuilder<RedisResource> cache) AddInfisicalWithDependencies(
         this IDistributedApplicationBuilder builder,
         [ResourceName] string name = "infisical",
         int? port = null,
-        string imageTag = "latest",
-        string postgresImageTag = "14-alpine",
-        string cacheImage = "redis",
-        string cacheImageTag = "7-alpine")
+        string imageTag = "latest")
     {
         ArgumentNullException.ThrowIfNull(builder);
 
-        var infisicalConfig = builder.Configuration.GetSection("Infisical");
+        var postgres = builder.AddPostgres($"{name}-postgres")
+            .AddDatabase($"{name}-db");
 
-        var dbUser = infisicalConfig.GetValue<string>("Postgres:User") ?? "infisical";
-        var dbPassword = infisicalConfig.GetValue<string>("Postgres:Password") ?? "infisical";
-        var dbName = infisicalConfig.GetValue<string>("Postgres:Database") ?? "infisical";
+        var cache = builder.AddRedis($"{name}-cache");
 
-        var postgres = builder.AddContainer($"{name}-postgres", "postgres", postgresImageTag)
-            .WithEnvironment("POSTGRES_USER", dbUser)
-            .WithEnvironment("POSTGRES_PASSWORD", dbPassword)
-            .WithEnvironment("POSTGRES_DB", dbName)
-            .WithVolume($"{name}-postgres-data", "/var/lib/postgresql/data");
+        var infisical = ConfigureInfisical(builder, postgres, cache, name, port, imageTag);
 
-        var cache = builder.AddContainer($"{name}-cache", cacheImage, cacheImageTag)
-            .WithVolume($"{name}-cache-data", "/data");
+        return (infisical, postgres, cache);
+    }
 
-        var encryptionKey = infisicalConfig.GetValue<string>("EncryptionKey")
-                            ?? throw new InvalidOperationException(
-                                "Infisical:EncryptionKey configuration is required. " +
-                                "Generate one with: openssl rand -hex 16");
+    /// <summary>
+    /// Adds an Infisical container along with dedicated PostgreSQL and Valkey dependencies
+    /// using the proper Aspire resource types.
+    /// Connection strings are derived from the created resources at runtime.
+    /// </summary>
+    /// <param name="builder">The distributed application builder.</param>
+    /// <param name="name">The resource name for the Infisical container.</param>
+    /// <param name="port">Optional host port to map to Infisical's internal port (8080).</param>
+    /// <param name="imageTag">The Infisical Docker image tag. Defaults to <c>latest</c>.</param>
+    /// <returns>
+    /// A tuple containing resource builders for the Infisical container, the PostgreSQL database, and the Valkey cache.
+    /// </returns>
+    public static (IResourceBuilder<ContainerResource> infisical, IResourceBuilder<PostgresDatabaseResource> postgres, IResourceBuilder<ValkeyResource> cache) AddInfisicalWithValkeyDependencies(
+        this IDistributedApplicationBuilder builder,
+        [ResourceName] string name = "infisical",
+        int? port = null,
+        string imageTag = "latest")
+    {
+        ArgumentNullException.ThrowIfNull(builder);
 
-        var authSecret = infisicalConfig.GetValue<string>("AuthSecret")
-                         ?? throw new InvalidOperationException(
-                             "Infisical:AuthSecret configuration is required. " +
-                             "Generate one with: openssl rand -base64 32");
+        var postgres = builder.AddPostgres($"{name}-postgres")
+            .AddDatabase($"{name}-db");
 
-        var siteUrl = infisicalConfig.GetValue<string>("SiteUrl") ?? "http://localhost:8080";
-        var telemetryEnabled = infisicalConfig.GetValue<bool?>("TelemetryEnabled") ?? false;
+        var cache = builder.AddValkey($"{name}-cache");
 
-        var dbConnectionUri = $"postgresql://{dbUser}:{dbPassword}@{name}-postgres:5432/{dbName}";
-        var redisUrl = $"redis://{name}-cache:6379";
-
-        var infisical = builder.AddContainer(name, "infisical/infisical", imageTag)
-            .WithHttpEndpoint(port: port, targetPort: 8080, name: "http")
-            .WithEnvironment("ENCRYPTION_KEY", encryptionKey)
-            .WithEnvironment("AUTH_SECRET", authSecret)
-            .WithEnvironment("DB_CONNECTION_URI", dbConnectionUri)
-            .WithEnvironment("REDIS_URL", redisUrl)
-            .WithEnvironment("SITE_URL", siteUrl)
-            .WithEnvironment("TELEMETRY_ENABLED", telemetryEnabled.ToString().ToLowerInvariant())
-            .WaitFor(postgres)
-            .WaitFor(cache);
+        var infisical = ConfigureInfisical(builder, postgres, cache, name, port, imageTag);
 
         return (infisical, postgres, cache);
     }
@@ -138,7 +126,8 @@ public static class BuilderExtensions
     /// Use this overload to share a single cache and/or database instance across multiple services
     /// instead of creating dedicated containers for Infisical.
     /// The cache resource can be any Redis-compatible server such as Redis or Valkey.
-    /// Connection strings for PostgreSQL and cache are derived from the provided resources.
+    /// Connection strings are resolved from the provided resources at runtime via Aspire's
+    /// <see cref="IResourceWithConnectionString"/> mechanism.
     /// </summary>
     /// <param name="builder">The distributed application builder.</param>
     /// <param name="postgres">An existing PostgreSQL resource whose connection string will be used for <c>DB_CONNECTION_URI</c>.</param>
@@ -159,6 +148,17 @@ public static class BuilderExtensions
         ArgumentNullException.ThrowIfNull(postgres);
         ArgumentNullException.ThrowIfNull(cache);
 
+        return ConfigureInfisical(builder, postgres, cache, name, port, imageTag);
+    }
+
+    private static IResourceBuilder<ContainerResource> ConfigureInfisical(
+        IDistributedApplicationBuilder builder,
+        IResourceBuilder<IResourceWithConnectionString> postgres,
+        IResourceBuilder<IResourceWithConnectionString> cache,
+        string name,
+        int? port,
+        string imageTag)
+    {
         var infisicalConfig = builder.Configuration.GetSection("Infisical");
 
         var encryptionKey = infisicalConfig.GetValue<string>("EncryptionKey")
