@@ -6,34 +6,45 @@ on:
   pull_request:
     branches:
       - main
+  release:
+    types: [published]
 
   workflow_dispatch:
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+permissions:
+  contents: read
+
 jobs:
-      # Runs a single command using the runners shell
   buildPr:
     if: github.event_name == 'pull_request'
     uses: bielu/bielu.GithubActions.Templates/.github/workflows/ciNoSchema.yml@main
     with:
       suffix: "pr"
+    permissions:
+      contents: read
 
   build:
     if: github.event_name == 'release'
     uses: bielu/bielu.GithubActions.Templates/.github/workflows/ciNoSchema.yml@main
+    permissions:
+      contents: read
 
   buildBeta:
     if: github.event_name != 'pull_request' && github.event_name != 'release'
     uses: bielu/bielu.GithubActions.Templates/.github/workflows/ciNoSchema.yml@main
     with:
       suffix: "beta"
+    permissions:
+      contents: read
 
   deploy:
-    needs: [build,buildBeta]
+    needs: [build, buildBeta]
     if: |
       always()
       && contains(needs.*.result, 'success')
       && !contains(needs.*.result, 'failure')
     uses: bielu/bielu.GithubActions.Templates/.github/workflows/releaseNuget.yml@main
+    permissions:
+      contents: read
     secrets:
       NUGET_APIKEY: ${{ secrets.NUGET_APIKEY }}
