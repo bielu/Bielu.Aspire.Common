@@ -24,17 +24,9 @@ public static class BuilderExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
 
+        var settings = ReadInfisicalSettings(builder);
+
         var infisicalConfig = builder.Configuration.GetSection("Infisical");
-
-        var encryptionKey = infisicalConfig.GetValue<string>("EncryptionKey")
-                            ?? throw new InvalidOperationException(
-                                "Infisical:EncryptionKey configuration is required. " +
-                                "Generate one with: openssl rand -hex 16");
-
-        var authSecret = infisicalConfig.GetValue<string>("AuthSecret")
-                         ?? throw new InvalidOperationException(
-                             "Infisical:AuthSecret configuration is required. " +
-                             "Generate one with: openssl rand -base64 32");
 
         var dbConnectionUri = infisicalConfig.GetValue<string>("DbConnectionUri")
                               ?? throw new InvalidOperationException(
@@ -46,17 +38,14 @@ public static class BuilderExtensions
                            "Infisical:RedisUrl configuration is required. " +
                            "Example: redis://host:6379");
 
-        var siteUrl = infisicalConfig.GetValue<string>("SiteUrl") ?? "http://localhost:8080";
-        var telemetryEnabled = infisicalConfig.GetValue<bool?>("TelemetryEnabled") ?? false;
-
         var container = builder.AddContainer(name, "infisical/infisical", imageTag)
             .WithHttpEndpoint(port: port, targetPort: 8080, name: "http")
-            .WithEnvironment("ENCRYPTION_KEY", encryptionKey)
-            .WithEnvironment("AUTH_SECRET", authSecret)
+            .WithEnvironment("ENCRYPTION_KEY", settings.EncryptionKey)
+            .WithEnvironment("AUTH_SECRET", settings.AuthSecret)
             .WithEnvironment("DB_CONNECTION_URI", dbConnectionUri)
             .WithEnvironment("REDIS_URL", redisUrl)
-            .WithEnvironment("SITE_URL", siteUrl)
-            .WithEnvironment("TELEMETRY_ENABLED", telemetryEnabled.ToString().ToLowerInvariant());
+            .WithEnvironment("SITE_URL", settings.SiteUrl)
+            .WithEnvironment("TELEMETRY_ENABLED", settings.TelemetryEnabled);
 
         return container;
     }
@@ -136,7 +125,7 @@ public static class BuilderExtensions
     /// <param name="port">Optional host port to map to Infisical's internal port (8080).</param>
     /// <param name="imageTag">The Infisical Docker image tag. Defaults to <c>latest</c>.</param>
     /// <returns>A resource builder for the Infisical container.</returns>
-    public static IResourceBuilder<ContainerResource> AddInfisicalWithDependencies(
+    public static IResourceBuilder<ContainerResource> AddInfisicalUsingResources(
         this IDistributedApplicationBuilder builder,
         IResourceBuilder<IResourceWithConnectionString> postgres,
         IResourceBuilder<IResourceWithConnectionString> cache,
@@ -159,6 +148,26 @@ public static class BuilderExtensions
         int? port,
         string imageTag)
     {
+        var settings = ReadInfisicalSettings(builder);
+
+        var infisical = builder.AddContainer(name, "infisical/infisical", imageTag)
+            .WithHttpEndpoint(port: port, targetPort: 8080, name: "http")
+            .WithEnvironment("ENCRYPTION_KEY", settings.EncryptionKey)
+            .WithEnvironment("AUTH_SECRET", settings.AuthSecret)
+            .WithEnvironment("DB_CONNECTION_URI", postgres)
+            .WithEnvironment("REDIS_URL", cache)
+            .WithEnvironment("SITE_URL", settings.SiteUrl)
+            .WithEnvironment("TELEMETRY_ENABLED", settings.TelemetryEnabled)
+            .WaitFor(postgres)
+            .WaitFor(cache);
+
+        return infisical;
+    }
+
+    private sealed record InfisicalSettings(string EncryptionKey, string AuthSecret, string SiteUrl, string TelemetryEnabled);
+
+    private static InfisicalSettings ReadInfisicalSettings(IDistributedApplicationBuilder builder)
+    {
         var infisicalConfig = builder.Configuration.GetSection("Infisical");
 
         var encryptionKey = infisicalConfig.GetValue<string>("EncryptionKey")
@@ -172,19 +181,9 @@ public static class BuilderExtensions
                              "Generate one with: openssl rand -base64 32");
 
         var siteUrl = infisicalConfig.GetValue<string>("SiteUrl") ?? "http://localhost:8080";
-        var telemetryEnabled = infisicalConfig.GetValue<bool?>("TelemetryEnabled") ?? false;
+        var telemetryEnabled = (infisicalConfig.GetValue<bool?>("TelemetryEnabled") ?? false)
+            .ToString().ToLowerInvariant();
 
-        var infisical = builder.AddContainer(name, "infisical/infisical", imageTag)
-            .WithHttpEndpoint(port: port, targetPort: 8080, name: "http")
-            .WithEnvironment("ENCRYPTION_KEY", encryptionKey)
-            .WithEnvironment("AUTH_SECRET", authSecret)
-            .WithEnvironment("DB_CONNECTION_URI", postgres)
-            .WithEnvironment("REDIS_URL", cache)
-            .WithEnvironment("SITE_URL", siteUrl)
-            .WithEnvironment("TELEMETRY_ENABLED", telemetryEnabled.ToString().ToLowerInvariant())
-            .WaitFor(postgres)
-            .WaitFor(cache);
-
-        return infisical;
+        return new InfisicalSettings(encryptionKey, authSecret, siteUrl, telemetryEnabled);
     }
 }
