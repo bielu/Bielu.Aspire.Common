@@ -45,7 +45,7 @@ public static class BuilderExtensions
             .WithEnvironment("DB_CONNECTION_URI", dbConnectionUri)
             .WithEnvironment("REDIS_URL", redisUrl)
             .WithEnvironment("SITE_URL", settings.SiteUrl)
-            .WithEnvironment("TELEMETRY_ENABLED", settings.TelemetryEnabled);
+            .WithEnvironment("TELEMETRY_ENABLED", settings.TelemetryEnabled.ToString().ToLowerInvariant());
 
         return container;
     }
@@ -157,14 +157,14 @@ public static class BuilderExtensions
             .WithEnvironment("DB_CONNECTION_URI", postgres)
             .WithEnvironment("REDIS_URL", cache)
             .WithEnvironment("SITE_URL", settings.SiteUrl)
-            .WithEnvironment("TELEMETRY_ENABLED", settings.TelemetryEnabled)
+            .WithEnvironment("TELEMETRY_ENABLED", settings.TelemetryEnabled.ToString().ToLowerInvariant())
             .WaitFor(postgres)
             .WaitFor(cache);
 
         return infisical;
     }
 
-    private sealed record InfisicalSettings(string EncryptionKey, string AuthSecret, string SiteUrl, string TelemetryEnabled);
+    private sealed record InfisicalSettings(string EncryptionKey, string AuthSecret, string SiteUrl, bool TelemetryEnabled);
 
     private static InfisicalSettings ReadInfisicalSettings(IDistributedApplicationBuilder builder)
     {
@@ -181,8 +181,7 @@ public static class BuilderExtensions
                              "Generate one with: openssl rand -base64 32");
 
         var siteUrl = infisicalConfig.GetValue<string>("SiteUrl") ?? "http://localhost:8080";
-        var telemetryEnabled = (infisicalConfig.GetValue<bool?>("TelemetryEnabled") ?? false)
-            .ToString().ToLowerInvariant();
+        var telemetryEnabled = infisicalConfig.GetValue<bool?>("TelemetryEnabled") ?? false;
 
         return new InfisicalSettings(encryptionKey, authSecret, siteUrl, telemetryEnabled);
     }
