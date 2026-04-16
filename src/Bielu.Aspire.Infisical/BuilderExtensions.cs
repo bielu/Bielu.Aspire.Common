@@ -8,8 +8,8 @@ public static class BuilderExtensions
 {
     /// <summary>
     /// Adds an Infisical secrets management container to the distributed application.
-    /// Requires PostgreSQL and Redis connection details to be configured via the
-    /// <c>Infisical</c> configuration section, or provided as parameters.
+    /// Requires PostgreSQL and a Redis-compatible cache (Redis, Valkey, etc.) connection
+    /// details to be configured via the <c>Infisical</c> configuration section, or provided as parameters.
     /// </summary>
     /// <param name="builder">The distributed application builder.</param>
     /// <param name="name">The resource name for the Infisical container.</param>
@@ -62,26 +62,29 @@ public static class BuilderExtensions
     }
 
     /// <summary>
-    /// Adds an Infisical container along with its PostgreSQL and Redis dependencies.
+    /// Adds an Infisical container along with its PostgreSQL and Redis-compatible cache dependencies.
     /// This is a convenience method that creates all three containers.
     /// Infisical only supports PostgreSQL as its database engine.
+    /// The cache engine can be any Redis-compatible server such as Redis or Valkey.
     /// </summary>
     /// <param name="builder">The distributed application builder.</param>
     /// <param name="name">The resource name for the Infisical container.</param>
     /// <param name="port">Optional host port to map to Infisical's internal port (8080).</param>
     /// <param name="imageTag">The Infisical Docker image tag. Defaults to <c>latest</c>.</param>
     /// <param name="postgresImageTag">The PostgreSQL Docker image tag. Defaults to <c>14-alpine</c>.</param>
-    /// <param name="redisImageTag">The Redis Docker image tag. Defaults to <c>7-alpine</c>.</param>
+    /// <param name="cacheImage">The Docker image for the Redis-compatible cache engine (e.g. <c>redis</c>, <c>valkey/valkey</c>). Defaults to <c>redis</c>.</param>
+    /// <param name="cacheImageTag">The Docker image tag for the cache engine. Defaults to <c>7-alpine</c>.</param>
     /// <returns>
-    /// A tuple containing resource builders for the Infisical, PostgreSQL, and Redis containers.
+    /// A tuple containing resource builders for the Infisical, PostgreSQL, and cache containers.
     /// </returns>
-    public static (IResourceBuilder<ContainerResource> infisical, IResourceBuilder<ContainerResource> postgres, IResourceBuilder<ContainerResource> redis) AddInfisicalWithDependencies(
+    public static (IResourceBuilder<ContainerResource> infisical, IResourceBuilder<ContainerResource> postgres, IResourceBuilder<ContainerResource> cache) AddInfisicalWithDependencies(
         this IDistributedApplicationBuilder builder,
         [ResourceName] string name = "infisical",
         int? port = null,
         string imageTag = "latest",
         string postgresImageTag = "14-alpine",
-        string redisImageTag = "7-alpine")
+        string cacheImage = "redis",
+        string cacheImageTag = "7-alpine")
     {
         ArgumentNullException.ThrowIfNull(builder);
 
@@ -97,8 +100,8 @@ public static class BuilderExtensions
             .WithEnvironment("POSTGRES_DB", dbName)
             .WithVolume($"{name}-postgres-data", "/var/lib/postgresql/data");
 
-        var redis = builder.AddContainer($"{name}-redis", "redis", redisImageTag)
-            .WithVolume($"{name}-redis-data", "/data");
+        var cache = builder.AddContainer($"{name}-cache", cacheImage, cacheImageTag)
+            .WithVolume($"{name}-cache-data", "/data");
 
         var encryptionKey = infisicalConfig.GetValue<string>("EncryptionKey")
                             ?? throw new InvalidOperationException(
@@ -114,7 +117,7 @@ public static class BuilderExtensions
         var telemetryEnabled = infisicalConfig.GetValue<bool?>("TelemetryEnabled") ?? false;
 
         var dbConnectionUri = $"postgresql://{dbUser}:{dbPassword}@{name}-postgres:5432/{dbName}";
-        var redisUrl = $"redis://{name}-redis:6379";
+        var redisUrl = $"redis://{name}-cache:6379";
 
         var infisical = builder.AddContainer(name, "infisical/infisical", imageTag)
             .WithHttpEndpoint(port: port, targetPort: 8080, name: "http")
@@ -125,8 +128,8 @@ public static class BuilderExtensions
             .WithEnvironment("SITE_URL", siteUrl)
             .WithEnvironment("TELEMETRY_ENABLED", telemetryEnabled.ToString().ToLowerInvariant())
             .WaitFor(postgres)
-            .WaitFor(redis);
+            .WaitFor(cache);
 
-        return (infisical, postgres, redis);
+        return (infisical, postgres, cache);
     }
 }
