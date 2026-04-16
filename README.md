@@ -67,7 +67,7 @@ Share PostgreSQL and cache instances across services:
 ```csharp
 var redis = builder.AddRedis("redis");
 var postgres = builder.AddPostgres("postgres").AddDatabase("mydb");
-var infisical = builder.AddInfisicalWithDependencies(postgres, redis);
+var infisical = builder.AddInfisicalUsingResources(postgres, redis);
 ```
 
 #### Standalone (all config via `Infisical:*` section)
