@@ -16,13 +16,18 @@ public static class InfisicalClientBuilderExtensions
     /// <summary>
     /// Adds an Infisical configuration provider that fetches secrets from an Infisical server
     /// whose URL is resolved from the Aspire connection string named <paramref name="connectionName"/>.
-    /// Additional settings (project ID, environment, auth, etc.) are read from the
-    /// <c>Infisical:Client</c> configuration section and can be overridden via the
-    /// <paramref name="configureSettings"/> callback.
     /// <para>
-    /// When <see cref="InfisicalClientSettings.ServiceToken"/> is set, service-token authentication
-    /// is used. Otherwise, machine identity authentication is used with
-    /// <see cref="InfisicalClientSettings.ClientId"/> and <see cref="InfisicalClientSettings.ClientSecret"/>.
+    /// All Infisical settings (project ID, environment, auth credentials, etc.) are automatically
+    /// populated from the <c>Infisical:Client</c> configuration section using the built-in
+    /// <see cref="MachineIdentityInfisicalConfig.FromConfiguration"/> or
+    /// <see cref="ServiceTokenInfisicalConfig.FromConfiguration"/> methods from
+    /// <c>JJConsulting.Infisical</c>. The only value overridden by this method is the <c>Url</c>,
+    /// which is resolved from the Aspire connection string.
+    /// </para>
+    /// <para>
+    /// When the <c>ServiceToken</c> key is present in the configuration section, service-token
+    /// authentication is used. Otherwise, machine identity authentication is used (requires
+    /// <c>ClientId</c> and <c>ClientSecret</c>).
     /// </para>
     /// </summary>
     /// <param name="builder">The host application builder.</param>
@@ -31,13 +36,14 @@ public static class InfisicalClientBuilderExtensions
     /// (e.g., <c>http://localhost:8080</c>).
     /// </param>
     /// <param name="configureSettings">
-    /// An optional callback to further configure <see cref="InfisicalClientSettings"/> after
-    /// they have been bound from configuration.
+    /// An optional callback to further configure <see cref="InfisicalClientSettings"/> before
+    /// the Infisical config objects are built. Use this to set or override values that are not
+    /// available in configuration (e.g., secrets from environment variables).
     /// </param>
     /// <returns>The <see cref="IHostApplicationBuilder"/> for chaining.</returns>
     /// <exception cref="InvalidOperationException">
-    /// Thrown when required settings (<see cref="InfisicalClientSettings.ProjectId"/>,
-    /// <see cref="InfisicalClientSettings.Environment"/>, or auth credentials) are missing.
+    /// Thrown when the connection string is not found or when the resulting configuration is invalid
+    /// (missing project ID, environment, or auth credentials).
     /// </exception>
     public static IHostApplicationBuilder AddInfisicalConfiguration(
         this IHostApplicationBuilder builder,
@@ -46,10 +52,6 @@ public static class InfisicalClientBuilderExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentException.ThrowIfNullOrEmpty(connectionName);
-
-        var settings = new InfisicalClientSettings();
-        builder.Configuration.GetSection(DefaultConfigSectionName).Bind(settings);
-        configureSettings?.Invoke(settings);
 
         var connectionString = builder.Configuration.GetConnectionString(connectionName);
 
@@ -60,53 +62,55 @@ public static class InfisicalClientBuilderExtensions
                 "Ensure the Infisical resource is referenced via .WithReference() in the AppHost.");
         }
 
-        if (string.IsNullOrEmpty(settings.ProjectId))
-        {
-            throw new InvalidOperationException(
-                $"{DefaultConfigSectionName}:ProjectId is required. " +
-                "Set it in configuration or via the configureSettings callback.");
-        }
+        var section = builder.Configuration.GetSection(DefaultConfigSectionName);
 
-        if (string.IsNullOrEmpty(settings.Environment))
-        {
-            throw new InvalidOperationException(
-                $"{DefaultConfigSectionName}:Environment is required. " +
-                "Set it in configuration or via the configureSettings callback.");
-        }
+        // Allow callers to overlay values before building the config objects.
+        var settings = new InfisicalClientSettings();
+        section.Bind(settings);
+        configureSettings?.Invoke(settings);
 
+        // Determine auth mode: if ServiceToken is set, use service-token auth; otherwise machine identity.
         if (!string.IsNullOrEmpty(settings.ServiceToken))
         {
-            var config = new ServiceTokenInfisicalConfig
+            var config = ServiceTokenInfisicalConfig.FromConfiguration(section);
+            config = new ServiceTokenInfisicalConfig
             {
-                ProjectId = settings.ProjectId,
-                Environment = settings.Environment,
-                SecretPath = settings.SecretPath,
-                Url = connectionString,
-                ServiceToken = settings.ServiceToken
+                ProjectId = settings.ProjectId ?? config.ProjectId,
+                Environment = settings.Environment ?? config.Environment,
+                SecretPath = settings.SecretPath ?? config.SecretPath,
+                ServiceToken = settings.ServiceToken ?? config.ServiceToken,
+                Url = connectionString
             };
+
+            if (!config.IsValid())
+            {
+                throw new InvalidOperationException(
+                    $"Infisical service-token configuration is invalid. " +
+                    $"Ensure {DefaultConfigSectionName}:ServiceToken, ProjectId, and Environment are set.");
+            }
 
             builder.Configuration.AddInfisical(config);
             builder.Services.AddInfisical(config);
         }
         else
         {
-            if (string.IsNullOrEmpty(settings.ClientId) || string.IsNullOrEmpty(settings.ClientSecret))
+            var config = MachineIdentityInfisicalConfig.FromConfiguration(section);
+            config = new MachineIdentityInfisicalConfig
+            {
+                ProjectId = settings.ProjectId ?? config.ProjectId,
+                Environment = settings.Environment ?? config.Environment,
+                SecretPath = settings.SecretPath ?? config.SecretPath,
+                ClientId = settings.ClientId ?? config.ClientId,
+                ClientSecret = settings.ClientSecret ?? config.ClientSecret,
+                Url = connectionString
+            };
+
+            if (!config.IsValid())
             {
                 throw new InvalidOperationException(
-                    $"{DefaultConfigSectionName}:ClientId and {DefaultConfigSectionName}:ClientSecret are required " +
-                    "for machine identity auth (or set {DefaultConfigSectionName}:ServiceToken for service-token auth). " +
-                    "Set them in configuration or via the configureSettings callback.");
+                    $"Infisical machine identity configuration is invalid. " +
+                    $"Ensure {DefaultConfigSectionName}:ClientId, ClientSecret, ProjectId, and Environment are set.");
             }
-
-            var config = new MachineIdentityInfisicalConfig
-            {
-                ProjectId = settings.ProjectId,
-                Environment = settings.Environment,
-                SecretPath = settings.SecretPath,
-                Url = connectionString,
-                ClientId = settings.ClientId,
-                ClientSecret = settings.ClientSecret
-            };
 
             builder.Configuration.AddInfisical(config);
             builder.Services.AddInfisical(config);
