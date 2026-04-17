@@ -14,6 +14,7 @@ A collection of common extensions and resources for .NET Aspire in the Bielu eco
 | [Bielu.Aspire.Resources](https://www.nuget.org/packages/Bielu.Aspire.Resources) | Custom Aspire resources (file store with bind mount and volume support) |
 | [Bielu.Aspire.OnePassword](https://www.nuget.org/packages/Bielu.Aspire.OnePassword) | 1Password Connect integration for Aspire |
 | [Bielu.Aspire.Infisical](https://www.nuget.org/packages/Bielu.Aspire.Infisical) | Infisical secrets management integration for Aspire |
+| [Bielu.Aspire.Infisical.Client](https://www.nuget.org/packages/Bielu.Aspire.Infisical.Client) | Infisical configuration provider client for Aspire service projects |
 
 ## Installation
 
@@ -22,6 +23,7 @@ dotnet add package Bielu.Aspire.Common
 dotnet add package Bielu.Aspire.Resources
 dotnet add package Bielu.Aspire.OnePassword
 dotnet add package Bielu.Aspire.Infisical
+dotnet add package Bielu.Aspire.Infisical.Client
 ```
 
 ## Usage
@@ -68,6 +70,53 @@ Share PostgreSQL and cache instances across services:
 var redis = builder.AddRedis("redis");
 var postgres = builder.AddPostgres("postgres").AddDatabase("mydb");
 var infisical = builder.AddInfisicalUsingResources(postgres, redis);
+```
+
+#### Referencing Infisical from a service project
+
+All `AddInfisical*` methods return an `IResourceBuilder<InfisicalResource>` which implements `IResourceWithConnectionString`, so you can use `.WithReference()` to inject the Infisical URL as a connection string:
+
+```csharp
+// AppHost (Program.cs)
+var (infisical, db, redis) = builder.AddInfisicalWithDependencies("infisical");
+builder.AddProject<Projects.MyApi>("myapi")
+    .WithReference(infisical);
+```
+
+#### Client-side configuration (service project)
+
+In your service project, install `Bielu.Aspire.Infisical.Client` and call `AddInfisicalConfiguration` to
+wire Infisical secrets into the .NET configuration system. The Infisical server URL is resolved
+automatically from the Aspire connection string:
+
+```csharp
+// MyApi Service (Program.cs)
+builder.AddInfisicalConfiguration("infisical", settings =>
+{
+    settings.ProjectId = "<your-project-id>";
+    settings.Environment = "dev";
+    settings.ClientId = "<machine-identity-client-id>";
+    settings.ClientSecret = "<machine-identity-client-secret>";
+});
+
+// Secrets from Infisical are now available via IConfiguration
+var secret = builder.Configuration["MY_SECRET"];
+```
+
+Client settings can also be bound from the `Infisical:Client` configuration section instead of
+(or in addition to) the callback:
+
+```json
+{
+  "Infisical": {
+    "Client": {
+      "ProjectId": "<your-project-id>",
+      "Environment": "dev",
+      "ClientId": "<machine-identity-client-id>",
+      "ClientSecret": "<machine-identity-client-secret>"
+    }
+  }
+}
 ```
 
 #### Standalone (all config via `Infisical:*` section)
