@@ -74,44 +74,82 @@ var infisical = builder.AddInfisicalUsingResources(postgres, redis);
 
 #### Referencing Infisical from a service project
 
-All `AddInfisical*` methods return an `IResourceBuilder<InfisicalResource>` which implements `IResourceWithConnectionString`, so you can use `.WithReference()` to inject the Infisical URL as a connection string:
+All `AddInfisical*` methods return an `IResourceBuilder<InfisicalResource>` which implements `IResourceWithConnectionString` and `IResourceWithWaitSupport`, so you can use `.WithReference()` and `.WaitFor()`:
 
 ```csharp
 // AppHost (Program.cs)
 var (infisical, db, redis) = builder.AddInfisicalWithDependencies("infisical");
 builder.AddProject<Projects.MyApi>("myapi")
-    .WithReference(infisical);
+    .WithReference(infisical)
+    .WaitFor(infisical);
 ```
 
 #### Automatic client configuration from AppHost (recommended)
 
-Use `WithInfisicalClient` in the AppHost to inject all client settings as environment variables.
-The service project then only needs a single call — no `appsettings.json` or callbacks required:
+Client credentials (ClientId, ClientSecret, ProjectId, etc.) are automatically read from the
+`Infisical:Client` section in the AppHost's configuration and stored on the `InfisicalResource`.
+When you call `WithInfisicalClient`, these values are injected as environment variables into
+the consuming project — **no manual configuration needed in each service project**.
+
+```json
+// AppHost appsettings.json (or user-secrets)
+{
+  "Infisical": {
+    "EncryptionKey": "...",
+    "AuthSecret": "...",
+    "Client": {
+      "ProjectId": "<your-project-id>",
+      "Environment": "dev",
+      "ClientId": "<machine-identity-client-id>",
+      "ClientSecret": "<machine-identity-client-secret>"
+    }
+  }
+}
+```
 
 ```csharp
 // AppHost (Program.cs)
 var (infisical, db, redis) = builder.AddInfisicalWithDependencies("infisical");
+
+// Client config flows automatically from Infisical:Client section
 builder.AddProject<Projects.MyApi>("myapi")
-    .WithInfisicalClient(infisical, client =>
-    {
-        client.ProjectId = "<your-project-id>";
-        client.Environment = "dev";
-        client.ClientId = "<machine-identity-client-id>";
-        client.ClientSecret = "<machine-identity-client-secret>";
-    });
+    .WithInfisicalClient(infisical);
 ```
 
 ```csharp
-// MyApi Service (Program.cs) — no settings callback needed!
+// MyApi Service (Program.cs) — no settings needed!
 builder.AddInfisicalConfiguration("infisical");
 
 // Secrets from Infisical are now available via IConfiguration
 var secret = builder.Configuration["MY_SECRET"];
 ```
 
+You can also configure or override client settings programmatically at the resource level
+with `WithClientConfiguration`, or per-service via the optional callback on `WithInfisicalClient`:
+
+```csharp
+// Override at resource level (applies to all services)
+var (infisical, db, redis) = builder.AddInfisicalWithDependencies("infisical");
+infisical.WithClientConfiguration(client =>
+{
+    client.ProjectId = "<your-project-id>";
+    client.Environment = "dev";
+    client.ClientId = "<machine-identity-client-id>";
+    client.ClientSecret = "<machine-identity-client-secret>";
+});
+
+// Override per-service (e.g., different environment for a specific service)
+builder.AddProject<Projects.MyApi>("myapi")
+    .WithInfisicalClient(infisical, client =>
+    {
+        client.Environment = "staging";
+    });
+```
+
 `WithInfisicalClient` injects environment variables (`Infisical__Client__ProjectId`, etc.) that
 the .NET configuration system maps to `Infisical:Client:*`, which `AddInfisicalConfiguration`
-reads automatically. It also calls `.WithReference(infisical)` under the hood.
+reads automatically. It also calls `.WithReference(infisical)` and `.WaitFor(infisical)` under
+the hood.
 
 #### Client-side configuration (service project)
 

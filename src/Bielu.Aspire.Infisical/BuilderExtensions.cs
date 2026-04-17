@@ -39,8 +39,9 @@ public static class BuilderExtensions
                            "Example: redis://host:6379");
 
         var infisical = new InfisicalResource(name);
+        BindClientConfiguration(builder, infisical);
 
-        var container = builder.AddResource(infisical)
+        var resourceBuilder = builder.AddResource(infisical)
             .WithImage("infisical/infisical", imageTag)
             .WithHttpEndpoint(port: port, targetPort: 8080, name: InfisicalResource.HttpEndpointName)
             .WithEnvironment("ENCRYPTION_KEY", settings.EncryptionKey)
@@ -50,7 +51,7 @@ public static class BuilderExtensions
             .WithEnvironment("SITE_URL", settings.SiteUrl)
             .WithEnvironment("TELEMETRY_ENABLED", settings.TelemetryEnabled.ToString().ToLowerInvariant());
 
-        return container;
+        return resourceBuilder;
     }
 
     /// <summary>
@@ -144,10 +145,43 @@ public static class BuilderExtensions
     }
 
     /// <summary>
+    /// Configures the client settings stored on the <see cref="InfisicalResource"/>.
+    /// These settings are automatically propagated to consuming service projects when
+    /// <see cref="WithInfisicalClient{T}(IResourceBuilder{T}, IResourceBuilder{InfisicalResource}, Action{InfisicalClientConfiguration}?)"/>
+    /// is called.
+    /// <para>
+    /// Values set here override any values that were automatically read from the
+    /// <c>Infisical:Client</c> configuration section at resource creation time.
+    /// </para>
+    /// </summary>
+    /// <param name="builder">The Infisical resource builder.</param>
+    /// <param name="configureClient">
+    /// A callback to configure the client settings on the resource.
+    /// </param>
+    /// <returns>The resource builder for chaining.</returns>
+    public static IResourceBuilder<InfisicalResource> WithClientConfiguration(
+        this IResourceBuilder<InfisicalResource> builder,
+        Action<InfisicalClientConfiguration> configureClient)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(configureClient);
+
+        configureClient(builder.Resource.ClientConfiguration);
+
+        return builder;
+    }
+
+    /// <summary>
     /// Injects Infisical client configuration into the target resource as environment variables.
     /// The injected values are automatically picked up by
     /// <c>Bielu.Aspire.Infisical.Client.AddInfisicalConfiguration</c> in the service project,
     /// eliminating the need for manual <c>appsettings.json</c> or callback configuration.
+    /// <para>
+    /// Client settings (ProjectId, Environment, ClientId, ClientSecret, etc.) are read from the
+    /// <see cref="InfisicalResource.ClientConfiguration"/> on the Infisical resource. These are
+    /// populated automatically from the <c>Infisical:Client</c> AppHost configuration section
+    /// and can be overridden via <see cref="WithClientConfiguration"/>.
+    /// </para>
     /// <para>
     /// This also calls <see cref="ResourceBuilderExtensions.WithReference"/> to inject the
     /// Infisical connection string and <see cref="ResourceBuilderExtensions.WaitFor"/> to
@@ -158,28 +192,37 @@ public static class BuilderExtensions
     /// the .NET configuration system automatically maps to <c>Infisical:Client:*</c>.
     /// </para>
     /// </summary>
-    /// <typeparam name="T">A resource type that supports environment variables (e.g., a project or container).</typeparam>
+    /// <typeparam name="T">A resource type that supports environment variables and wait (e.g., a project).</typeparam>
     /// <param name="builder">The resource builder for the target service.</param>
-    /// <param name="infisical">The Infisical resource to reference.</param>
+    /// <param name="infisical">The Infisical resource whose client configuration will be injected.</param>
     /// <param name="configureClient">
-    /// A callback to configure the Infisical client settings that will be injected as environment variables.
-    /// At minimum, <see cref="InfisicalClientConfiguration.ProjectId"/> and
-    /// <see cref="InfisicalClientConfiguration.Environment"/> should be set, along with either
-    /// machine identity credentials or a service token.
+    /// An optional callback to override specific client settings for this particular service.
+    /// Values set here take precedence over the resource-level configuration.
     /// </param>
     /// <returns>The resource builder for chaining.</returns>
     public static IResourceBuilder<T> WithInfisicalClient<T>(
         this IResourceBuilder<T> builder,
         IResourceBuilder<InfisicalResource> infisical,
-        Action<InfisicalClientConfiguration> configureClient)
+        Action<InfisicalClientConfiguration>? configureClient = null)
         where T : IResourceWithEnvironment, IResourceWithWaitSupport
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(infisical);
-        ArgumentNullException.ThrowIfNull(configureClient);
 
-        var clientConfig = new InfisicalClientConfiguration();
-        configureClient(clientConfig);
+        // Start from the resource-level configuration.
+        var resourceConfig = infisical.Resource.ClientConfiguration;
+        var clientConfig = new InfisicalClientConfiguration
+        {
+            ProjectId = resourceConfig.ProjectId,
+            Environment = resourceConfig.Environment,
+            SecretPath = resourceConfig.SecretPath,
+            ClientId = resourceConfig.ClientId,
+            ClientSecret = resourceConfig.ClientSecret,
+            ServiceToken = resourceConfig.ServiceToken
+        };
+
+        // Allow per-service overrides.
+        configureClient?.Invoke(clientConfig);
 
         builder = builder
             .WithReference(infisical)
@@ -229,8 +272,9 @@ public static class BuilderExtensions
         var settings = ReadInfisicalSettings(builder);
 
         var infisical = new InfisicalResource(name);
+        BindClientConfiguration(builder, infisical);
 
-        var container = builder.AddResource(infisical)
+        var resourceBuilder = builder.AddResource(infisical)
             .WithImage("infisical/infisical", imageTag)
             .WithHttpEndpoint(port: port, targetPort: 8080, name: InfisicalResource.HttpEndpointName)
             .WithEnvironment("ENCRYPTION_KEY", settings.EncryptionKey)
@@ -242,7 +286,28 @@ public static class BuilderExtensions
             .WaitFor(postgres)
             .WaitFor(cache);
 
-        return container;
+        return resourceBuilder;
+    }
+
+    /// <summary>
+    /// Reads client configuration from the <c>Infisical:Client</c> AppHost configuration section
+    /// and stores it on the <see cref="InfisicalResource.ClientConfiguration"/>.
+    /// </summary>
+    private static void BindClientConfiguration(IDistributedApplicationBuilder builder, InfisicalResource resource)
+    {
+        var clientSection = builder.Configuration.GetSection("Infisical:Client");
+        if (!clientSection.Exists())
+        {
+            return;
+        }
+
+        var config = resource.ClientConfiguration;
+        config.ProjectId = clientSection.GetValue<string>("ProjectId") ?? config.ProjectId;
+        config.Environment = clientSection.GetValue<string>("Environment") ?? config.Environment;
+        config.SecretPath = clientSection.GetValue<string>("SecretPath") ?? config.SecretPath;
+        config.ClientId = clientSection.GetValue<string>("ClientId") ?? config.ClientId;
+        config.ClientSecret = clientSection.GetValue<string>("ClientSecret") ?? config.ClientSecret;
+        config.ServiceToken = clientSection.GetValue<string>("ServiceToken") ?? config.ServiceToken;
     }
 
     private sealed record InfisicalSettings(string EncryptionKey, string AuthSecret, string SiteUrl, bool TelemetryEnabled);

@@ -25,4 +25,11 @@ public class InfisicalResource(string name) : ContainerResource(name), IResource
     public ReferenceExpression ConnectionStringExpression =>
         ReferenceExpression.Create(
             $"http://{HttpEndpoint.Property(EndpointProperty.Host)}:{HttpEndpoint.Property(EndpointProperty.Port)}");
+
+    /// <summary>
+    /// Gets the client configuration that will be automatically injected into
+    /// consuming service projects via <see cref="BuilderExtensions.WithInfisicalClient{T}"/>.
+    /// Configure these values using <see cref="BuilderExtensions.WithClientConfiguration"/>.
+    /// </summary>
+    public InfisicalClientConfiguration ClientConfiguration { get; } = new();
 }
