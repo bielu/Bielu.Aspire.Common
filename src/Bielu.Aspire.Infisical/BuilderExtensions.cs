@@ -183,13 +183,19 @@ public static class BuilderExtensions
     /// and can be overridden via <see cref="WithClientConfiguration"/>.
     /// </para>
     /// <para>
+    /// Sensitive values (<c>ClientSecret</c> and <c>ServiceToken</c>) are injected as
+    /// secret <see cref="Aspire.Hosting.ApplicationModel.ParameterResource"/> instances
+    /// (created with <c>secret: true</c>) so they are masked in the Aspire dashboard and logs
+    /// rather than being exposed as plain-text environment variables.
+    /// </para>
+    /// <para>
     /// This also calls <see cref="ResourceBuilderExtensions.WithReference"/> to inject the
     /// Infisical connection string and <see cref="ResourceBuilderExtensions.WaitFor"/> to
     /// ensure the Infisical server is ready.
     /// </para>
     /// <para>
-    /// Environment variables are injected using the <c>Infisical__Client__*</c> prefix, which
-    /// the .NET configuration system automatically maps to <c>Infisical:Client:*</c>.
+    /// Non-sensitive environment variables are injected using the <c>Infisical__Client__*</c> prefix,
+    /// which the .NET configuration system automatically maps to <c>Infisical:Client:*</c>.
     /// </para>
     /// </summary>
     /// <typeparam name="T">A resource type that supports environment variables and wait (e.g., a project).</typeparam>
@@ -245,7 +251,11 @@ public static class BuilderExtensions
 
         if (!string.IsNullOrEmpty(clientConfig.ServiceToken))
         {
-            builder = builder.WithEnvironment("Infisical__Client__ServiceToken", clientConfig.ServiceToken);
+            var serviceTokenParam = infisical.ApplicationBuilder.AddParameter(
+                $"{infisical.Resource.Name}-infisical-client-service-token",
+                clientConfig.ServiceToken,
+                secret: true);
+            builder = builder.WithEnvironment("Infisical__Client__ServiceToken", serviceTokenParam);
         }
 
         if (!string.IsNullOrEmpty(clientConfig.ClientId))
@@ -255,7 +265,11 @@ public static class BuilderExtensions
 
         if (!string.IsNullOrEmpty(clientConfig.ClientSecret))
         {
-            builder = builder.WithEnvironment("Infisical__Client__ClientSecret", clientConfig.ClientSecret);
+            var clientSecretParam = infisical.ApplicationBuilder.AddParameter(
+                $"{infisical.Resource.Name}-infisical-client-secret",
+                clientConfig.ClientSecret,
+                secret: true);
+            builder = builder.WithEnvironment("Infisical__Client__ClientSecret", clientSecretParam);
         }
 
         return builder;

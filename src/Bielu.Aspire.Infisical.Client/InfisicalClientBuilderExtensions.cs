@@ -65,8 +65,15 @@ public static class InfisicalClientBuilderExtensions
         var section = builder.Configuration.GetSection(DefaultConfigSectionName);
 
         // Allow callers to overlay values before building the config objects.
-        var settings = new InfisicalClientSettings();
-        section.Bind(settings);
+        var settings = new InfisicalClientSettings
+        {
+            ProjectId = section["ProjectId"],
+            Environment = section["Environment"],
+            SecretPath = section["SecretPath"],
+            ServiceToken = section["ServiceToken"],
+            ClientId = section["ClientId"],
+            ClientSecret = section["ClientSecret"]
+        };
         configureSettings?.Invoke(settings);
 
         // Determine auth mode: if ServiceToken is set, use service-token auth; otherwise machine identity.
