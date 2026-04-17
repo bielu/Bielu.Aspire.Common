@@ -8,6 +8,7 @@
     <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.2.2" />
     <PackageVersion Include="Aspire.Hosting.Redis" Version="13.2.2" />
     <PackageVersion Include="Aspire.Hosting.Valkey" Version="13.2.2" />
+    <PackageVersion Include="JJConsulting.Infisical" Version="1.0.0" />
     <PackageVersion Include="Bielu.Common.Kiota" Version="1.0.0-beta.638962526632712959" />
     <PackageVersion Include="Bielu.Forms.Umbraco.Licensing" Version="1.0.0-beta.638961648445457506" />
     <PackageVersion Include="bielu.SchemaGenerator.Build" Version="1.0.3" />
@@ -55,7 +56,9 @@
     <PackageVersion Include="Swashbuckle.AspNetCore.SwaggerUI" Version="9.0.6" />
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.0-rc.2.25502.107" />
     <PackageVersion Include="Microsoft.Extensions.ApiDescription.Server" Version="10.0.0-rc.2.25502.107" />
-    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.0-rc.2.25502.107" />
+    <!-- Pinned to a stable patch (not the RC used by other Microsoft.Extensions.* packages) because
+         JJConsulting.Infisical 1.0.0 requires Microsoft.Extensions.Hosting >= 10.0.2 (stable). -->
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.2" />
     <PackageVersion Include="Umbraco.Cms" Version="17.0.0-beta" />
     <PackageVersion Include="Umbraco.Cms.Api.Management" Version="17.0.0-beta" />
     <PackageVersion Include="Umbraco.Cms.Core" Version="17.0.0-beta" />

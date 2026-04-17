@@ -16,7 +16,7 @@ public static class BuilderExtensions
     /// <param name="port">Optional host port to map to Infisical's internal port (8080).</param>
     /// <param name="imageTag">The Infisical Docker image tag. Defaults to <c>latest</c>.</param>
     /// <returns>A resource builder for the Infisical container.</returns>
-    public static IResourceBuilder<ContainerResource> AddInfisical(
+    public static IResourceBuilder<InfisicalResource> AddInfisical(
         this IDistributedApplicationBuilder builder,
         [ResourceName] string name = "infisical",
         int? port = null,
@@ -38,8 +38,12 @@ public static class BuilderExtensions
                            "Infisical:RedisUrl configuration is required. " +
                            "Example: redis://host:6379");
 
-        var container = builder.AddContainer(name, "infisical/infisical", imageTag)
-            .WithHttpEndpoint(port: port, targetPort: 8080, name: "http")
+        var infisical = new InfisicalResource(name);
+        BindClientConfiguration(builder, infisical);
+
+        var resourceBuilder = builder.AddResource(infisical)
+            .WithImage("infisical/infisical", imageTag)
+            .WithHttpEndpoint(port: port, targetPort: 8080, name: InfisicalResource.HttpEndpointName)
             .WithEnvironment("ENCRYPTION_KEY", settings.EncryptionKey)
             .WithEnvironment("AUTH_SECRET", settings.AuthSecret)
             .WithEnvironment("DB_CONNECTION_URI", dbConnectionUri)
@@ -47,7 +51,7 @@ public static class BuilderExtensions
             .WithEnvironment("SITE_URL", settings.SiteUrl)
             .WithEnvironment("TELEMETRY_ENABLED", settings.TelemetryEnabled.ToString().ToLowerInvariant());
 
-        return container;
+        return resourceBuilder;
     }
 
     /// <summary>
@@ -62,7 +66,7 @@ public static class BuilderExtensions
     /// <returns>
     /// A tuple containing resource builders for the Infisical container, the PostgreSQL database, and the Redis cache.
     /// </returns>
-    public static (IResourceBuilder<ContainerResource> infisical, IResourceBuilder<PostgresDatabaseResource> postgres, IResourceBuilder<RedisResource> cache) AddInfisicalWithDependencies(
+    public static (IResourceBuilder<InfisicalResource> infisical, IResourceBuilder<PostgresDatabaseResource> postgres, IResourceBuilder<RedisResource> cache) AddInfisicalWithDependencies(
         this IDistributedApplicationBuilder builder,
         [ResourceName] string name = "infisical",
         int? port = null,
@@ -92,7 +96,7 @@ public static class BuilderExtensions
     /// <returns>
     /// A tuple containing resource builders for the Infisical container, the PostgreSQL database, and the Valkey cache.
     /// </returns>
-    public static (IResourceBuilder<ContainerResource> infisical, IResourceBuilder<PostgresDatabaseResource> postgres, IResourceBuilder<ValkeyResource> cache) AddInfisicalWithValkeyDependencies(
+    public static (IResourceBuilder<InfisicalResource> infisical, IResourceBuilder<PostgresDatabaseResource> postgres, IResourceBuilder<ValkeyResource> cache) AddInfisicalWithValkeyDependencies(
         this IDistributedApplicationBuilder builder,
         [ResourceName] string name = "infisical",
         int? port = null,
@@ -125,7 +129,7 @@ public static class BuilderExtensions
     /// <param name="port">Optional host port to map to Infisical's internal port (8080).</param>
     /// <param name="imageTag">The Infisical Docker image tag. Defaults to <c>latest</c>.</param>
     /// <returns>A resource builder for the Infisical container.</returns>
-    public static IResourceBuilder<ContainerResource> AddInfisicalUsingResources(
+    public static IResourceBuilder<InfisicalResource> AddInfisicalUsingResources(
         this IDistributedApplicationBuilder builder,
         IResourceBuilder<IResourceWithConnectionString> postgres,
         IResourceBuilder<IResourceWithConnectionString> cache,
@@ -140,7 +144,138 @@ public static class BuilderExtensions
         return ConfigureInfisical(builder, postgres, cache, name, port, imageTag);
     }
 
-    private static IResourceBuilder<ContainerResource> ConfigureInfisical(
+    /// <summary>
+    /// Configures the client settings stored on the <see cref="InfisicalResource"/>.
+    /// These settings are automatically propagated to consuming service projects when
+    /// <see cref="WithInfisicalClient{T}(IResourceBuilder{T}, IResourceBuilder{InfisicalResource}, Action{InfisicalClientConfiguration}?)"/>
+    /// is called.
+    /// <para>
+    /// Values set here override any values that were automatically read from the
+    /// <c>Infisical:Client</c> configuration section at resource creation time.
+    /// </para>
+    /// </summary>
+    /// <param name="builder">The Infisical resource builder.</param>
+    /// <param name="configureClient">
+    /// A callback to configure the client settings on the resource.
+    /// </param>
+    /// <returns>The resource builder for chaining.</returns>
+    public static IResourceBuilder<InfisicalResource> WithClientConfiguration(
+        this IResourceBuilder<InfisicalResource> builder,
+        Action<InfisicalClientConfiguration> configureClient)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(configureClient);
+
+        configureClient(builder.Resource.ClientConfiguration);
+
+        return builder;
+    }
+
+    /// <summary>
+    /// Injects Infisical client configuration into the target resource as environment variables.
+    /// The injected values are automatically picked up by
+    /// <c>Bielu.Aspire.Infisical.Client.AddInfisicalConfiguration</c> in the service project,
+    /// eliminating the need for manual <c>appsettings.json</c> or callback configuration.
+    /// <para>
+    /// Client settings (ProjectId, Environment, ClientId, ClientSecret, etc.) are read from the
+    /// <see cref="InfisicalResource.ClientConfiguration"/> on the Infisical resource. These are
+    /// populated automatically from the <c>Infisical:Client</c> AppHost configuration section
+    /// and can be overridden via <see cref="WithClientConfiguration"/>.
+    /// </para>
+    /// <para>
+    /// Sensitive values (<c>ClientSecret</c> and <c>ServiceToken</c>) are injected as
+    /// secret <see cref="Aspire.Hosting.ApplicationModel.ParameterResource"/> instances
+    /// (created with <c>secret: true</c>) so they are masked in the Aspire dashboard and logs
+    /// rather than being exposed as plain-text environment variables.
+    /// </para>
+    /// <para>
+    /// This also calls <see cref="ResourceBuilderExtensions.WithReference"/> to inject the
+    /// Infisical connection string and <see cref="ResourceBuilderExtensions.WaitFor"/> to
+    /// ensure the Infisical server is ready.
+    /// </para>
+    /// <para>
+    /// Non-sensitive environment variables are injected using the <c>Infisical__Client__*</c> prefix,
+    /// which the .NET configuration system automatically maps to <c>Infisical:Client:*</c>.
+    /// </para>
+    /// </summary>
+    /// <typeparam name="T">A resource type that supports environment variables and wait (e.g., a project).</typeparam>
+    /// <param name="builder">The resource builder for the target service.</param>
+    /// <param name="infisical">The Infisical resource whose client configuration will be injected.</param>
+    /// <param name="configureClient">
+    /// An optional callback to override specific client settings for this particular service.
+    /// Values set here take precedence over the resource-level configuration.
+    /// </param>
+    /// <returns>The resource builder for chaining.</returns>
+    public static IResourceBuilder<T> WithInfisicalClient<T>(
+        this IResourceBuilder<T> builder,
+        IResourceBuilder<InfisicalResource> infisical,
+        Action<InfisicalClientConfiguration>? configureClient = null)
+        where T : IResourceWithEnvironment, IResourceWithWaitSupport
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(infisical);
+
+        // Start from the resource-level configuration.
+        var resourceConfig = infisical.Resource.ClientConfiguration;
+        var clientConfig = new InfisicalClientConfiguration
+        {
+            ProjectId = resourceConfig.ProjectId,
+            Environment = resourceConfig.Environment,
+            SecretPath = resourceConfig.SecretPath,
+            ClientId = resourceConfig.ClientId,
+            ClientSecret = resourceConfig.ClientSecret,
+            ServiceToken = resourceConfig.ServiceToken
+        };
+
+        // Allow per-service overrides.
+        configureClient?.Invoke(clientConfig);
+
+        builder = builder
+            .WithReference(infisical)
+            .WaitFor(infisical);
+
+        if (!string.IsNullOrEmpty(clientConfig.ProjectId))
+        {
+            builder = builder.WithEnvironment("Infisical__Client__ProjectId", clientConfig.ProjectId);
+        }
+
+        if (!string.IsNullOrEmpty(clientConfig.Environment))
+        {
+            builder = builder.WithEnvironment("Infisical__Client__Environment", clientConfig.Environment);
+        }
+
+        if (!string.IsNullOrEmpty(clientConfig.SecretPath))
+        {
+            builder = builder.WithEnvironment("Infisical__Client__SecretPath", clientConfig.SecretPath);
+        }
+
+        if (!string.IsNullOrEmpty(clientConfig.ServiceToken))
+        {
+            var serviceTokenParam = infisical.ApplicationBuilder.AddParameter(
+                $"{infisical.Resource.Name}-infisical-client-service-token",
+                clientConfig.ServiceToken,
+                secret: true);
+            builder = builder.WithEnvironment("Infisical__Client__ServiceToken", serviceTokenParam);
+        }
+
+        if (!string.IsNullOrEmpty(clientConfig.ClientId))
+        {
+            builder = builder.WithEnvironment("Infisical__Client__ClientId", clientConfig.ClientId);
+        }
+
+        if (!string.IsNullOrEmpty(clientConfig.ClientSecret))
+        {
+            var clientSecretParam = infisical.ApplicationBuilder.AddParameter(
+                $"{infisical.Resource.Name}-infisical-client-secret",
+                clientConfig.ClientSecret,
+                secret: true);
+            builder = builder.WithEnvironment("Infisical__Client__ClientSecret", clientSecretParam);
+        }
+
+        return builder;
+    }
+
+    private static IResourceBuilder<InfisicalResource> ConfigureInfisical(
         IDistributedApplicationBuilder builder,
         IResourceBuilder<IResourceWithConnectionString> postgres,
         IResourceBuilder<IResourceWithConnectionString> cache,
@@ -150,8 +285,12 @@ public static class BuilderExtensions
     {
         var settings = ReadInfisicalSettings(builder);
 
-        var infisical = builder.AddContainer(name, "infisical/infisical", imageTag)
-            .WithHttpEndpoint(port: port, targetPort: 8080, name: "http")
+        var infisical = new InfisicalResource(name);
+        BindClientConfiguration(builder, infisical);
+
+        var resourceBuilder = builder.AddResource(infisical)
+            .WithImage("infisical/infisical", imageTag)
+            .WithHttpEndpoint(port: port, targetPort: 8080, name: InfisicalResource.HttpEndpointName)
             .WithEnvironment("ENCRYPTION_KEY", settings.EncryptionKey)
             .WithEnvironment("AUTH_SECRET", settings.AuthSecret)
             .WithEnvironment("DB_CONNECTION_URI", postgres)
@@ -161,7 +300,28 @@ public static class BuilderExtensions
             .WaitFor(postgres)
             .WaitFor(cache);
 
-        return infisical;
+        return resourceBuilder;
+    }
+
+    /// <summary>
+    /// Reads client configuration from the <c>Infisical:Client</c> AppHost configuration section
+    /// and stores it on the <see cref="InfisicalResource.ClientConfiguration"/>.
+    /// </summary>
+    private static void BindClientConfiguration(IDistributedApplicationBuilder builder, InfisicalResource resource)
+    {
+        var clientSection = builder.Configuration.GetSection("Infisical:Client");
+        if (!clientSection.Exists())
+        {
+            return;
+        }
+
+        var config = resource.ClientConfiguration;
+        config.ProjectId = clientSection.GetValue<string>("ProjectId") ?? config.ProjectId;
+        config.Environment = clientSection.GetValue<string>("Environment") ?? config.Environment;
+        config.SecretPath = clientSection.GetValue<string>("SecretPath") ?? config.SecretPath;
+        config.ClientId = clientSection.GetValue<string>("ClientId") ?? config.ClientId;
+        config.ClientSecret = clientSection.GetValue<string>("ClientSecret") ?? config.ClientSecret;
+        config.ServiceToken = clientSection.GetValue<string>("ServiceToken") ?? config.ServiceToken;
     }
 
     private sealed record InfisicalSettings(string EncryptionKey, string AuthSecret, string SiteUrl, bool TelemetryEnabled);
