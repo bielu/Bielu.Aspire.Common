@@ -23,17 +23,20 @@ public sealed class InfisicalClientSettings
     public string SecretPath { get; set; } = "/";
 
     /// <summary>
-    /// Gets or sets an optional prefix to apply to all secret keys.
-    /// </summary>
-    public string? Prefix { get; set; }
-
-    /// <summary>
     /// Gets or sets the client ID for Universal Auth machine identity authentication.
+    /// Mutually exclusive with <see cref="ServiceToken"/>.
     /// </summary>
     public string? ClientId { get; set; }
 
     /// <summary>
     /// Gets or sets the client secret for Universal Auth machine identity authentication.
+    /// Mutually exclusive with <see cref="ServiceToken"/>.
     /// </summary>
     public string? ClientSecret { get; set; }
+
+    /// <summary>
+    /// Gets or sets the Infisical service token for service-token authentication.
+    /// When set, <see cref="ClientId"/> and <see cref="ClientSecret"/> are ignored.
+    /// </summary>
+    public string? ServiceToken { get; set; }
 }

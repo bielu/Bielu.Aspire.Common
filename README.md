@@ -87,7 +87,10 @@ builder.AddProject<Projects.MyApi>("myapi")
 
 In your service project, install `Bielu.Aspire.Infisical.Client` and call `AddInfisicalConfiguration` to
 wire Infisical secrets into the .NET configuration system. The Infisical server URL is resolved
-automatically from the Aspire connection string:
+automatically from the Aspire connection string. Powered by
+[JJConsulting.Infisical](https://github.com/JJConsulting/Infisical).
+
+##### Machine Identity auth
 
 ```csharp
 // MyApi Service (Program.cs)
@@ -101,6 +104,17 @@ builder.AddInfisicalConfiguration("infisical", settings =>
 
 // Secrets from Infisical are now available via IConfiguration
 var secret = builder.Configuration["MY_SECRET"];
+```
+
+##### Service Token auth
+
+```csharp
+builder.AddInfisicalConfiguration("infisical", settings =>
+{
+    settings.ProjectId = "<your-project-id>";
+    settings.Environment = "dev";
+    settings.ServiceToken = "<your-service-token>";
+});
 ```
 
 Client settings can also be bound from the `Infisical:Client` configuration section instead of
@@ -118,6 +132,9 @@ Client settings can also be bound from the `Infisical:Client` configuration sect
   }
 }
 ```
+
+In addition to the configuration provider, `AddInfisicalConfiguration` also registers
+`IInfisicalSecretsService` and `IInfisicalAuthenticationService` in DI for direct secret access.
 
 #### Standalone (all config via `Infisical:*` section)
 

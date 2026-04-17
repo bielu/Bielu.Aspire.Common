@@ -1,5 +1,6 @@
-using InfisicalConfiguration;
+using JJConsulting.Infisical.Configuration;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 namespace Bielu.Aspire.Infisical.Client;
@@ -18,6 +19,11 @@ public static class InfisicalClientBuilderExtensions
     /// Additional settings (project ID, environment, auth, etc.) are read from the
     /// <c>Infisical:Client</c> configuration section and can be overridden via the
     /// <paramref name="configureSettings"/> callback.
+    /// <para>
+    /// When <see cref="InfisicalClientSettings.ServiceToken"/> is set, service-token authentication
+    /// is used. Otherwise, machine identity authentication is used with
+    /// <see cref="InfisicalClientSettings.ClientId"/> and <see cref="InfisicalClientSettings.ClientSecret"/>.
+    /// </para>
     /// </summary>
     /// <param name="builder">The host application builder.</param>
     /// <param name="connectionName">
@@ -68,36 +74,43 @@ public static class InfisicalClientBuilderExtensions
                 "Set it in configuration or via the configureSettings callback.");
         }
 
-        if (string.IsNullOrEmpty(settings.ClientId) || string.IsNullOrEmpty(settings.ClientSecret))
+        if (!string.IsNullOrEmpty(settings.ServiceToken))
         {
-            throw new InvalidOperationException(
-                $"{DefaultConfigSectionName}:ClientId and {DefaultConfigSectionName}:ClientSecret are required " +
-                "for Universal Auth. Set them in configuration or via the configureSettings callback.");
+            var config = new ServiceTokenInfisicalConfig
+            {
+                ProjectId = settings.ProjectId,
+                Environment = settings.Environment,
+                SecretPath = settings.SecretPath,
+                Url = connectionString,
+                ServiceToken = settings.ServiceToken
+            };
+
+            builder.Configuration.AddInfisical(config);
+            builder.Services.AddInfisical(config);
         }
-
-        // These values have been validated as non-null above.
-        var projectId = settings.ProjectId!;
-        var environment = settings.Environment!;
-        var clientId = settings.ClientId!;
-        var clientSecret = settings.ClientSecret!;
-
-        var configBuilder = new InfisicalConfigBuilder()
-            .SetProjectId(projectId)
-            .SetEnvironment(environment)
-            .SetSecretPath(settings.SecretPath)
-            .SetInfisicalUrl(connectionString)
-            .SetAuth(
-                new InfisicalAuthBuilder()
-                    .SetUniversalAuth(clientId, clientSecret)
-                    .Build()
-            );
-
-        if (!string.IsNullOrEmpty(settings.Prefix))
+        else
         {
-            configBuilder.SetPrefix(settings.Prefix);
-        }
+            if (string.IsNullOrEmpty(settings.ClientId) || string.IsNullOrEmpty(settings.ClientSecret))
+            {
+                throw new InvalidOperationException(
+                    $"{DefaultConfigSectionName}:ClientId and {DefaultConfigSectionName}:ClientSecret are required " +
+                    "for machine identity auth (or set {DefaultConfigSectionName}:ServiceToken for service-token auth). " +
+                    "Set them in configuration or via the configureSettings callback.");
+            }
 
-        builder.Configuration.AddInfisical(configBuilder.Build());
+            var config = new MachineIdentityInfisicalConfig
+            {
+                ProjectId = settings.ProjectId,
+                Environment = settings.Environment,
+                SecretPath = settings.SecretPath,
+                Url = connectionString,
+                ClientId = settings.ClientId,
+                ClientSecret = settings.ClientSecret
+            };
+
+            builder.Configuration.AddInfisical(config);
+            builder.Services.AddInfisical(config);
+        }
 
         return builder;
     }
