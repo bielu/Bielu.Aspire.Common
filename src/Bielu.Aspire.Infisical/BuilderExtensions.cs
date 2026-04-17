@@ -143,6 +143,80 @@ public static class BuilderExtensions
         return ConfigureInfisical(builder, postgres, cache, name, port, imageTag);
     }
 
+    /// <summary>
+    /// Injects Infisical client configuration into the target resource as environment variables.
+    /// The injected values are automatically picked up by
+    /// <c>Bielu.Aspire.Infisical.Client.AddInfisicalConfiguration</c> in the service project,
+    /// eliminating the need for manual <c>appsettings.json</c> or callback configuration.
+    /// <para>
+    /// This also calls <see cref="ResourceBuilderExtensions.WithReference"/> to inject the
+    /// Infisical connection string and <see cref="ResourceBuilderExtensions.WaitFor"/> to
+    /// ensure the Infisical server is ready.
+    /// </para>
+    /// <para>
+    /// Environment variables are injected using the <c>Infisical__Client__*</c> prefix, which
+    /// the .NET configuration system automatically maps to <c>Infisical:Client:*</c>.
+    /// </para>
+    /// </summary>
+    /// <typeparam name="T">A resource type that supports environment variables (e.g., a project or container).</typeparam>
+    /// <param name="builder">The resource builder for the target service.</param>
+    /// <param name="infisical">The Infisical resource to reference.</param>
+    /// <param name="configureClient">
+    /// A callback to configure the Infisical client settings that will be injected as environment variables.
+    /// At minimum, <see cref="InfisicalClientConfiguration.ProjectId"/> and
+    /// <see cref="InfisicalClientConfiguration.Environment"/> should be set, along with either
+    /// machine identity credentials or a service token.
+    /// </param>
+    /// <returns>The resource builder for chaining.</returns>
+    public static IResourceBuilder<T> WithInfisicalClient<T>(
+        this IResourceBuilder<T> builder,
+        IResourceBuilder<InfisicalResource> infisical,
+        Action<InfisicalClientConfiguration> configureClient)
+        where T : IResourceWithEnvironment
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(infisical);
+        ArgumentNullException.ThrowIfNull(configureClient);
+
+        var clientConfig = new InfisicalClientConfiguration();
+        configureClient(clientConfig);
+
+        builder = builder
+            .WithReference(infisical);
+
+        if (!string.IsNullOrEmpty(clientConfig.ProjectId))
+        {
+            builder = builder.WithEnvironment("Infisical__Client__ProjectId", clientConfig.ProjectId);
+        }
+
+        if (!string.IsNullOrEmpty(clientConfig.Environment))
+        {
+            builder = builder.WithEnvironment("Infisical__Client__Environment", clientConfig.Environment);
+        }
+
+        if (!string.IsNullOrEmpty(clientConfig.SecretPath))
+        {
+            builder = builder.WithEnvironment("Infisical__Client__SecretPath", clientConfig.SecretPath);
+        }
+
+        if (!string.IsNullOrEmpty(clientConfig.ServiceToken))
+        {
+            builder = builder.WithEnvironment("Infisical__Client__ServiceToken", clientConfig.ServiceToken);
+        }
+
+        if (!string.IsNullOrEmpty(clientConfig.ClientId))
+        {
+            builder = builder.WithEnvironment("Infisical__Client__ClientId", clientConfig.ClientId);
+        }
+
+        if (!string.IsNullOrEmpty(clientConfig.ClientSecret))
+        {
+            builder = builder.WithEnvironment("Infisical__Client__ClientSecret", clientConfig.ClientSecret);
+        }
+
+        return builder;
+    }
+
     private static IResourceBuilder<InfisicalResource> ConfigureInfisical(
         IDistributedApplicationBuilder builder,
         IResourceBuilder<IResourceWithConnectionString> postgres,

@@ -83,6 +83,36 @@ builder.AddProject<Projects.MyApi>("myapi")
     .WithReference(infisical);
 ```
 
+#### Automatic client configuration from AppHost (recommended)
+
+Use `WithInfisicalClient` in the AppHost to inject all client settings as environment variables.
+The service project then only needs a single call — no `appsettings.json` or callbacks required:
+
+```csharp
+// AppHost (Program.cs)
+var (infisical, db, redis) = builder.AddInfisicalWithDependencies("infisical");
+builder.AddProject<Projects.MyApi>("myapi")
+    .WithInfisicalClient(infisical, client =>
+    {
+        client.ProjectId = "<your-project-id>";
+        client.Environment = "dev";
+        client.ClientId = "<machine-identity-client-id>";
+        client.ClientSecret = "<machine-identity-client-secret>";
+    });
+```
+
+```csharp
+// MyApi Service (Program.cs) — no settings callback needed!
+builder.AddInfisicalConfiguration("infisical");
+
+// Secrets from Infisical are now available via IConfiguration
+var secret = builder.Configuration["MY_SECRET"];
+```
+
+`WithInfisicalClient` injects environment variables (`Infisical__Client__ProjectId`, etc.) that
+the .NET configuration system maps to `Infisical:Client:*`, which `AddInfisicalConfiguration`
+reads automatically. It also calls `.WithReference(infisical)` under the hood.
+
 #### Client-side configuration (service project)
 
 In your service project, install `Bielu.Aspire.Infisical.Client` and call `AddInfisicalConfiguration` to
