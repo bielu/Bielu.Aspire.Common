@@ -172,7 +172,7 @@ public static class BuilderExtensions
         this IResourceBuilder<T> builder,
         IResourceBuilder<InfisicalResource> infisical,
         Action<InfisicalClientConfiguration> configureClient)
-        where T : IResourceWithEnvironment
+        where T : IResourceWithEnvironment, IResourceWithWaitSupport
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(infisical);
@@ -182,7 +182,8 @@ public static class BuilderExtensions
         configureClient(clientConfig);
 
         builder = builder
-            .WithReference(infisical);
+            .WithReference(infisical)
+            .WaitFor(infisical);
 
         if (!string.IsNullOrEmpty(clientConfig.ProjectId))
         {

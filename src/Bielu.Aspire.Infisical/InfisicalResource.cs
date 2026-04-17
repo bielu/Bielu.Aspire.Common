@@ -6,7 +6,7 @@ namespace Bielu.Aspire.Infisical;
 /// A resource that represents a self-hosted Infisical secrets management server.
 /// </summary>
 /// <param name="name">The name of the resource.</param>
-public class InfisicalResource(string name) : ContainerResource(name), IResourceWithConnectionString
+public class InfisicalResource(string name) : ContainerResource(name), IResourceWithConnectionString, IResourceWithWaitSupport
 {
     internal const string HttpEndpointName = "http";
 
