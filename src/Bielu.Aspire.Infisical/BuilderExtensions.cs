@@ -16,7 +16,7 @@ public static class BuilderExtensions
     /// <param name="port">Optional host port to map to Infisical's internal port (8080).</param>
     /// <param name="imageTag">The Infisical Docker image tag. Defaults to <c>latest</c>.</param>
     /// <returns>A resource builder for the Infisical container.</returns>
-    public static IResourceBuilder<ContainerResource> AddInfisical(
+    public static IResourceBuilder<InfisicalResource> AddInfisical(
         this IDistributedApplicationBuilder builder,
         [ResourceName] string name = "infisical",
         int? port = null,
@@ -38,8 +38,11 @@ public static class BuilderExtensions
                            "Infisical:RedisUrl configuration is required. " +
                            "Example: redis://host:6379");
 
-        var container = builder.AddContainer(name, "infisical/infisical", imageTag)
-            .WithHttpEndpoint(port: port, targetPort: 8080, name: "http")
+        var infisical = new InfisicalResource(name);
+
+        var container = builder.AddResource(infisical)
+            .WithImage("infisical/infisical", imageTag)
+            .WithHttpEndpoint(port: port, targetPort: 8080, name: InfisicalResource.HttpEndpointName)
             .WithEnvironment("ENCRYPTION_KEY", settings.EncryptionKey)
             .WithEnvironment("AUTH_SECRET", settings.AuthSecret)
             .WithEnvironment("DB_CONNECTION_URI", dbConnectionUri)
@@ -62,7 +65,7 @@ public static class BuilderExtensions
     /// <returns>
     /// A tuple containing resource builders for the Infisical container, the PostgreSQL database, and the Redis cache.
     /// </returns>
-    public static (IResourceBuilder<ContainerResource> infisical, IResourceBuilder<PostgresDatabaseResource> postgres, IResourceBuilder<RedisResource> cache) AddInfisicalWithDependencies(
+    public static (IResourceBuilder<InfisicalResource> infisical, IResourceBuilder<PostgresDatabaseResource> postgres, IResourceBuilder<RedisResource> cache) AddInfisicalWithDependencies(
         this IDistributedApplicationBuilder builder,
         [ResourceName] string name = "infisical",
         int? port = null,
@@ -92,7 +95,7 @@ public static class BuilderExtensions
     /// <returns>
     /// A tuple containing resource builders for the Infisical container, the PostgreSQL database, and the Valkey cache.
     /// </returns>
-    public static (IResourceBuilder<ContainerResource> infisical, IResourceBuilder<PostgresDatabaseResource> postgres, IResourceBuilder<ValkeyResource> cache) AddInfisicalWithValkeyDependencies(
+    public static (IResourceBuilder<InfisicalResource> infisical, IResourceBuilder<PostgresDatabaseResource> postgres, IResourceBuilder<ValkeyResource> cache) AddInfisicalWithValkeyDependencies(
         this IDistributedApplicationBuilder builder,
         [ResourceName] string name = "infisical",
         int? port = null,
@@ -125,7 +128,7 @@ public static class BuilderExtensions
     /// <param name="port">Optional host port to map to Infisical's internal port (8080).</param>
     /// <param name="imageTag">The Infisical Docker image tag. Defaults to <c>latest</c>.</param>
     /// <returns>A resource builder for the Infisical container.</returns>
-    public static IResourceBuilder<ContainerResource> AddInfisicalUsingResources(
+    public static IResourceBuilder<InfisicalResource> AddInfisicalUsingResources(
         this IDistributedApplicationBuilder builder,
         IResourceBuilder<IResourceWithConnectionString> postgres,
         IResourceBuilder<IResourceWithConnectionString> cache,
@@ -140,7 +143,7 @@ public static class BuilderExtensions
         return ConfigureInfisical(builder, postgres, cache, name, port, imageTag);
     }
 
-    private static IResourceBuilder<ContainerResource> ConfigureInfisical(
+    private static IResourceBuilder<InfisicalResource> ConfigureInfisical(
         IDistributedApplicationBuilder builder,
         IResourceBuilder<IResourceWithConnectionString> postgres,
         IResourceBuilder<IResourceWithConnectionString> cache,
@@ -150,8 +153,11 @@ public static class BuilderExtensions
     {
         var settings = ReadInfisicalSettings(builder);
 
-        var infisical = builder.AddContainer(name, "infisical/infisical", imageTag)
-            .WithHttpEndpoint(port: port, targetPort: 8080, name: "http")
+        var infisical = new InfisicalResource(name);
+
+        var container = builder.AddResource(infisical)
+            .WithImage("infisical/infisical", imageTag)
+            .WithHttpEndpoint(port: port, targetPort: 8080, name: InfisicalResource.HttpEndpointName)
             .WithEnvironment("ENCRYPTION_KEY", settings.EncryptionKey)
             .WithEnvironment("AUTH_SECRET", settings.AuthSecret)
             .WithEnvironment("DB_CONNECTION_URI", postgres)
@@ -161,7 +167,7 @@ public static class BuilderExtensions
             .WaitFor(postgres)
             .WaitFor(cache);
 
-        return infisical;
+        return container;
     }
 
     private sealed record InfisicalSettings(string EncryptionKey, string AuthSecret, string SiteUrl, bool TelemetryEnabled);
