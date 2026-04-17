@@ -75,14 +75,20 @@ public static class InfisicalClientBuilderExtensions
                 "for Universal Auth. Set them in configuration or via the configureSettings callback.");
         }
 
+        // These values have been validated as non-null above.
+        var projectId = settings.ProjectId!;
+        var environment = settings.Environment!;
+        var clientId = settings.ClientId!;
+        var clientSecret = settings.ClientSecret!;
+
         var configBuilder = new InfisicalConfigBuilder()
-            .SetProjectId(settings.ProjectId)
-            .SetEnvironment(settings.Environment)
+            .SetProjectId(projectId)
+            .SetEnvironment(environment)
             .SetSecretPath(settings.SecretPath)
             .SetInfisicalUrl(connectionString)
             .SetAuth(
                 new InfisicalAuthBuilder()
-                    .SetUniversalAuth(settings.ClientId, settings.ClientSecret)
+                    .SetUniversalAuth(clientId, clientSecret)
                     .Build()
             );
 
