@@ -81,10 +81,7 @@ internal sealed partial class DockerfileImageLifecycleHook(
                 {
                     State = new ResourceStateSnapshot(KnownResourceStates.FailedToStart, KnownResourceStateStyles.Error),
                 }).ConfigureAwait(false);
-
-                throw new InvalidOperationException(
-                    $"docker build for '{resource.Name}' failed with exit code {exitCode}. " +
-                    $"See resource logs for details.");
+             return;
             }
 
             Log.BuildSucceeded(log, resource.ImageName);
@@ -98,9 +95,8 @@ internal sealed partial class DockerfileImageLifecycleHook(
         {
             await notifications.PublishUpdateAsync(resource, s => s with
             {
-                State = new ResourceStateSnapshot(KnownResourceStates.Exited, KnownResourceStateStyles.Warn),
+                State = new ResourceStateSnapshot(KnownResourceStates.FailedToStart, KnownResourceStateStyles.Warn),
             }).ConfigureAwait(false);
-            throw;
         }
         catch (Exception ex) when (ex is not InvalidOperationException)
         {
@@ -110,7 +106,6 @@ internal sealed partial class DockerfileImageLifecycleHook(
             {
                 State = new ResourceStateSnapshot(KnownResourceStates.FailedToStart, KnownResourceStateStyles.Error),
             }).ConfigureAwait(false);
-            throw;
         }
     }
 

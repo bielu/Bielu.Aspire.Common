@@ -84,7 +84,7 @@ public static class DockerfileImageExtensions
     /// <summary>
     /// Configures the resource to reference the image produced by a
     /// <see cref="DockerfileImageResource"/>. The image name is injected as
-    /// the environment variable <c>DOCKERFILE_IMAGE_{NAME}</c>.
+    /// the environment variable <c>CONTAINERS__IMAGES__{NAME}</c>.
     /// The resource starts without waiting for the image build to complete.
     /// </summary>
     /// <typeparam name="T">The consumer resource type.</typeparam>
@@ -116,7 +116,7 @@ public static class DockerfileImageExtensions
     /// <summary>
     /// Causes the resource to wait until the <see cref="DockerfileImageResource"/>
     /// image build has completed successfully before starting.
-    /// Also injects the image name as <c>DOCKERFILE_IMAGE_{NAME}</c>.
+    /// Also injects the image name as <c>CONTAINERS__IMAGES__{NAME}</c>.
     /// </summary>
     /// <typeparam name="T">The consumer resource type.</typeparam>
     /// <param name="builder">The consumer resource builder.</param>
@@ -149,7 +149,7 @@ public static class DockerfileImageExtensions
     // -------------------------------------------------------------------------
 
     private static string ImageEnvKey(DockerfileImageResource resource) =>
-        $"DOCKERFILE_IMAGE_{resource.Name.ToUpperInvariant().Replace('-', '_')}";
+        $"CONTAINERS__IMAGES__{resource.Name.ToUpperInvariant().Replace('-', '_')}";
 
     private static string ResolvePath(string appHostDir, string path) =>
         Path.IsPathRooted(path) ? path : Path.GetFullPath(path, appHostDir);
