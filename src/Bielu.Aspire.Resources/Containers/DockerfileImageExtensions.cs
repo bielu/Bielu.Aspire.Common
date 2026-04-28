@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Lifecycle;
+using Aspire.Hosting.Publishing; // Required for ManifestPublishingContext
 
 namespace Bielu.Aspire.Resources.Containers;
 
@@ -76,7 +77,7 @@ public static class DockerfileImageExtensions
                           State        = new ResourceStateSnapshot(KnownResourceStates.Starting, KnownResourceStateStyles.Info),
                           Properties   = BuildSnapshotProperties(resource),
                       })
-                      .ExcludeFromManifest();
+                      .WithManifestPublishingCallback(context => WriteResourceToManifest(context, resource));
     }
 
     // -------------------------------------------------------------------------
@@ -151,6 +152,41 @@ public static class DockerfileImageExtensions
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
+
+    private static void WriteResourceToManifest(ManifestPublishingContext context, DockerfileImageResource resource)
+    {
+        // Using "image" as requested for custom exporting later
+        context.Writer.WriteString("type", "image");
+
+        // The 'image' property should be the manifest expression for the full image name.
+        // This allows Aspire's publishing tools to resolve the image name, including any registry, at publish time.
+        context.Writer.WriteString("image", resource.GetFullImageName().ValueExpression);
+
+        // The 'build' section provides instructions on how to build this image.
+        context.Writer.WriteStartObject("build");
+        {
+            context.Writer.WriteString("context", resource.ContextPath);
+            context.Writer.WriteString("dockerfile", resource.DockerfilePath);
+
+            if (!string.IsNullOrEmpty(resource.Target))
+            {
+                context.Writer.WriteString("target", resource.Target);
+            }
+
+            if (resource.BuildArgs is { Count: > 0 })
+            {
+                context.Writer.WriteStartObject("args");
+                {
+                    foreach (var arg in resource.BuildArgs)
+                    {
+                        context.Writer.WriteString(arg.Key, arg.Value);
+                    }
+                }
+                context.Writer.WriteEndObject(); // End "args" object
+            }
+        }
+        context.Writer.WriteEndObject(); // End "build" object
+    }
 
     private static string ImageEnvKey(DockerfileImageResource resource) =>
         $"CONTAINERS__IMAGES__{resource.Name.ToUpperInvariant().Replace('-', '_')}";
