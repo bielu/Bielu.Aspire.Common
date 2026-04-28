@@ -1,6 +1,6 @@
 <Project>
 
-    <Import Project="../version.props"/>
+  <Import Project="../version.props" Condition="Exists('../version.props')"/>
 
     <PropertyGroup>
       <Title>$(MSBuildProjectName)</Title>

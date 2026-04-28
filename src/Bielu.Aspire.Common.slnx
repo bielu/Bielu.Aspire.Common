@@ -1,0 +1,26 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/Examples/">
+    <Project Path="Bielu.Aspire.Common.Example.Blazor.ApiService/Bielu.Aspire.Common.Example.Blazor.ApiService.csproj" />
+    <Project Path="Bielu.Aspire.Common.Example.Blazor.AppHost/Bielu.Aspire.Common.Example.Blazor.AppHost.csproj" />
+    <Project Path="Bielu.Aspire.Common.Example.Blazor.ServiceDefaults/Bielu.Aspire.Common.Example.Blazor.ServiceDefaults.csproj" />
+    <Project Path="Bielu.Aspire.Common.Example.Blazor.Web/Bielu.Aspire.Common.Example.Blazor.Web.csproj" />
+    <Project Path="Bielu.Aspire.Common.Example.Worker/Bielu.Aspire.Common.Example.Worker.csproj" />
+  </Folder>
+  <Folder Name="/Solution Items/">
+    <File Path="../LICENSE" />
+    <File Path="../README.md" />
+    <File Path="../version.props" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+  </Folder>
+  <Project Path="Bielu.Aspire.Common/Bielu.Aspire.Common.csproj" />
+  <Project Path="Bielu.Aspire.Infisical.Client/Bielu.Aspire.Infisical.Client.csproj" />
+  <Project Path="Bielu.Aspire.Infisical/Bielu.Aspire.Infisical.csproj" />
+  <Project Path="Bielu.Aspire.OnePassword/Bielu.Aspire.OnePassword.csproj" />
+  <Project Path="Bielu.Aspire.Resources/Bielu.Aspire.Resources.csproj" />
+</Solution>

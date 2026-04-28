@@ -3,6 +3,8 @@ using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Eventing;
 using Aspire.Hosting.Lifecycle;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics; // Required for System.Diagnostics.Process
 
 namespace Bielu.Aspire.Resources.Containers;
 
@@ -12,11 +14,13 @@ namespace Bielu.Aspire.Resources.Containers;
 /// All output is routed through <see cref="ResourceLoggerService"/> so it
 /// streams to the Aspire dashboard per-resource.
 /// </summary>
+[Experimental("ASPIREPIPELINES003")]
 internal sealed partial class DockerfileImageLifecycleHook(
     ResourceNotificationService notifications,
     ResourceLoggerService       loggers)
     : IDistributedApplicationEventingSubscriber
 {
+    [Experimental("ASPIREPIPELINES003")]
     public Task SubscribeAsync(
         IDistributedApplicationEventing eventing,
         DistributedApplicationExecutionContext executionContext,
@@ -43,6 +47,7 @@ internal sealed partial class DockerfileImageLifecycleHook(
 
     // -------------------------------------------------------------------------
 
+    [Experimental("ASPIREPIPELINES003")]
     private async Task BuildImageAsync(
         DockerfileImageResource resource,
         CancellationToken cancellationToken)
@@ -59,23 +64,16 @@ internal sealed partial class DockerfileImageLifecycleHook(
         try
         {
             var args = BuildDockerArgs(resource);
-            var (exitCode, output, errors) = await RunDockerAsync(args, cancellationToken).ConfigureAwait(false);
-
-            if (!string.IsNullOrWhiteSpace(output))
-            {
-                foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-                {
-                    Log.BuildOutputLine(log, line);
-                }
-            }
+            var exitCode = await RunProcessAsync("docker", args,
+                line => Log.BuildOutputLine(log, line),
+                line => Log.BuildErrorLine(log, line),
+                cancellationToken).ConfigureAwait(false);
 
             if (exitCode != 0)
             {
-                var errorMessage = string.IsNullOrWhiteSpace(errors)
-                    ? $"docker build exited with code {exitCode}"
-                    : errors;
-
-                Log.BuildFailed(log, resource.Name, exitCode, errorMessage);
+                // The error messages would have already been logged by BuildErrorLine
+                // So here we just log the failure summary.
+                Log.BuildFailed(log, resource.Name, exitCode, "Docker build failed. See logs above for details.");
 
                 await notifications.PublishUpdateAsync(resource, s => s with
                 {
@@ -98,7 +96,7 @@ internal sealed partial class DockerfileImageLifecycleHook(
                 State = new ResourceStateSnapshot(KnownResourceStates.FailedToStart, KnownResourceStateStyles.Warn),
             }).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not InvalidOperationException)
+        catch (Exception ex)
         {
             Log.BuildUnexpectedError(log, ex, resource.Name);
 
@@ -141,15 +139,18 @@ internal sealed partial class DockerfileImageLifecycleHook(
         return string.Join(' ', parts);
     }
 
-    private static async Task<(int ExitCode, string Output, string Errors)> RunDockerAsync(
-        string args,
+    private static async Task<int> RunProcessAsync(
+        string fileName,
+        string arguments,
+        Action<string> outputHandler,
+        Action<string> errorHandler,
         CancellationToken cancellationToken)
     {
-        using var process = new System.Diagnostics.Process();
-        process.StartInfo = new System.Diagnostics.ProcessStartInfo
+        using var process = new Process();
+        process.StartInfo = new ProcessStartInfo
         {
-            FileName               = "docker",
-            Arguments              = args,
+            FileName               = fileName,
+            Arguments              = arguments,
             RedirectStandardOutput = true,
             RedirectStandardError  = true,
             UseShellExecute        = false,
@@ -158,12 +159,27 @@ internal sealed partial class DockerfileImageLifecycleHook(
 
         process.Start();
 
-        var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var errorTask  = process.StandardError.ReadToEndAsync(cancellationToken);
+        // Create tasks to read the output and error streams asynchronously
+        var outputReadingTask = ReadStreamAsync(process.StandardOutput, outputHandler, cancellationToken);
+        var errorReadingTask = ReadStreamAsync(process.StandardError, errorHandler, cancellationToken);
 
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        // Wait for the process to exit and for both stream reading tasks to complete
+        await Task.WhenAll(process.WaitForExitAsync(cancellationToken), outputReadingTask, errorReadingTask).ConfigureAwait(false);
 
-        return (process.ExitCode, await outputTask.ConfigureAwait(false), await errorTask.ConfigureAwait(false));
+        return process.ExitCode;
+    }
+
+    private static async Task ReadStreamAsync(System.IO.StreamReader reader, Action<string> handler, CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+            if (line == null) // End of stream
+            {
+                break;
+            }
+            handler(line);
+        }
     }
 
     private static string Quote(string path) =>
@@ -180,6 +196,9 @@ internal sealed partial class DockerfileImageLifecycleHook(
 
         [LoggerMessage(Level = LogLevel.Information, Message = "{Line}")]
         internal static partial void BuildOutputLine(ILogger logger, string line);
+
+        [LoggerMessage(Level = LogLevel.Error, Message = "{Line}")]
+        internal static partial void BuildErrorLine(ILogger logger, string line);
 
         [LoggerMessage(Level = LogLevel.Error, Message = "Image '{Name}' build failed (exit {ExitCode}): {Error}")]
         internal static partial void BuildFailed(ILogger logger, string name, int exitCode, string error);

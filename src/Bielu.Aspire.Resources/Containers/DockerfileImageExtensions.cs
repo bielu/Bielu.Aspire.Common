@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Lifecycle;
@@ -39,11 +40,12 @@ public static class DockerfileImageExtensions
     /// <param name="target">Optional multi-stage build target.</param>
     /// <param name="buildArgs">Optional build arguments (<c>--build-arg</c>).</param>
     /// <returns>A builder for further configuration of the image resource.</returns>
+    [Experimental("ASPIREPIPELINES003")]
     public static IResourceBuilder<DockerfileImageResource> AddDockerfileImage(
         this IDistributedApplicationBuilder builder,
         string name,
-        string dockerfilePath,
         string? contextPath = null,
+        string? dockerfilePath = null,
         string? imageName = null,
         string? target = null,
         IReadOnlyDictionary<string, string>? buildArgs = null)
