@@ -25,10 +25,30 @@ public sealed class DockerfileImageResource(string name, string dockerfilePath, 
     public IReadOnlyDictionary<string, string>? BuildArgs { get; init; }
 
     /// <summary>
-    /// The fully-qualified image name (<c>repository:tag</c>) that will be produced.
+    /// The base image name (<c>repository:tag</c>) that will be produced.
     /// Defaults to the resource name (lowercased) with tag <c>latest</c>.
     /// </summary>
     public string ImageName { get; init; } = $"{name.ToLowerInvariant()}:latest";
+
+    /// <summary>
+    /// Returns a <see cref="ReferenceExpression"/> that resolves to the full image name,
+    /// including any registry specified via <see cref="ContainerRegistryReferenceAnnotation"/>.
+    /// </summary>
+    public ReferenceExpression GetFullImageName()
+    {
+        var registry = Annotations.OfType<ContainerRegistryReferenceAnnotation>().LastOrDefault()?.Registry;
+        if (registry == null)
+        {
+            return ReferenceExpression.Create($"{ImageName}");
+        }
+
+        if (registry.Repository != null)
+        {
+            return ReferenceExpression.Create($"{registry.Endpoint}/{registry.Repository}/{ImageName}");
+        }
+
+        return ReferenceExpression.Create($"{registry.Endpoint}/{ImageName}");
+    }
 }
 
 /// <summary>

@@ -59,11 +59,12 @@ internal sealed partial class DockerfileImageLifecycleHook(
             State = new ResourceStateSnapshot("Building", KnownResourceStateStyles.Info),
         }).ConfigureAwait(false);
 
-        Log.BuildStarting(log, resource.ImageName);
+        var fullImageName = await resource.GetFullImageName().GetValueAsync(cancellationToken).ConfigureAwait(false) ?? resource.ImageName;
+        Log.BuildStarting(log, fullImageName);
 
         try
         {
-            var args = BuildDockerArgs(resource);
+            var args = await BuildDockerArgsAsync(resource, cancellationToken).ConfigureAwait(false);
             var exitCode = await RunProcessAsync("docker", args,
                 line => Log.BuildOutputLine(log, line),
                 line => Log.BuildErrorLine(log, line),
@@ -82,7 +83,7 @@ internal sealed partial class DockerfileImageLifecycleHook(
              return;
             }
 
-            Log.BuildSucceeded(log, resource.ImageName);
+            Log.BuildSucceeded(log, fullImageName);
 
             await notifications.PublishUpdateAsync(resource, s => s with
             {
@@ -109,13 +110,15 @@ internal sealed partial class DockerfileImageLifecycleHook(
 
     // -------------------------------------------------------------------------
 
-    private static string BuildDockerArgs(DockerfileImageResource resource)
+    private static async Task<string> BuildDockerArgsAsync(DockerfileImageResource resource, CancellationToken cancellationToken)
     {
+        var fullImageName = await resource.GetFullImageName().GetValueAsync(cancellationToken).ConfigureAwait(false) ?? resource.ImageName;
+
         var parts = new List<string>
         {
             "build",
             "--file", Quote(resource.DockerfilePath),
-            "--tag",  resource.ImageName,
+            "--tag",  fullImageName,
         };
 
         if (resource.Target is not null)

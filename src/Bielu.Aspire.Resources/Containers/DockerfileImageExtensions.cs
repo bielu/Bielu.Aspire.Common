@@ -106,7 +106,8 @@ public static class DockerfileImageExtensions
             WaitForBuild = false,
         });
 
-        builder.WithEnvironment(ImageEnvKey(imageResource.Resource), imageResource.Resource.ImageName);
+        // Use the ReferenceExpression directly for late-bound environment variable
+        builder.WithEnvironment(ImageEnvKey(imageResource.Resource), imageResource.Resource.GetFullImageName());
 
         return builder;
     }
@@ -137,7 +138,8 @@ public static class DockerfileImageExtensions
             WaitForBuild = true,
         });
 
-        builder.WithEnvironment(ImageEnvKey(imageResource.Resource), imageResource.Resource.ImageName);
+        // Use the ReferenceExpression directly for late-bound environment variable
+        builder.WithEnvironment(ImageEnvKey(imageResource.Resource), imageResource.Resource.GetFullImageName());
 
         // Leverage Aspire's built-in WaitFor so the dashboard and orchestrator
         // understand and visualise the dependency edge.
