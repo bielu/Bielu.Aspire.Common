@@ -48,10 +48,37 @@ public static class BuilderExtensions
             .WithEnvironment("AUTH_SECRET", settings.AuthSecret)
             .WithEnvironment("DB_CONNECTION_URI", dbConnectionUri)
             .WithEnvironment("REDIS_URL", redisUrl)
-            .WithEnvironment("SITE_URL", settings.SiteUrl)
             .WithEnvironment("TELEMETRY_ENABLED", settings.TelemetryEnabled.ToString().ToLowerInvariant());
 
+        if (!string.IsNullOrEmpty(settings.SiteUrl))
+        {
+            resourceBuilder = resourceBuilder.WithEnvironment("SITE_URL", settings.SiteUrl);
+        }
+
         return resourceBuilder;
+    }
+
+    /// <summary>
+    /// Sets the Infisical <c>SITE_URL</c> environment variable to an explicit, stable URL.
+    /// <para>
+    /// This must be a URL that is reachable both from end users (their browser, for email
+    /// links and OAuth redirects) and from inside the Infisical container itself (Infisical
+    /// reads <c>SITE_URL</c> at boot during DB migrations). Aspire's proxied dashboard
+    /// endpoint is NOT suitable for this — use the host-mapped port you exposed on the
+    /// Infisical container (e.g. <c>http://localhost:8080</c>) or a real public URL.
+    /// </para>
+    /// </summary>
+    /// <param name="builder">The Infisical resource builder.</param>
+    /// <param name="siteUrl">The absolute site URL, e.g. <c>http://localhost:8080</c>.</param>
+    /// <returns>The resource builder for chaining.</returns>
+    public static IResourceBuilder<InfisicalResource> WithSiteUrl(
+        this IResourceBuilder<InfisicalResource> builder,
+        string siteUrl)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrEmpty(siteUrl);
+
+        return builder.WithEnvironment("SITE_URL", siteUrl);
     }
 
     /// <summary>
@@ -69,7 +96,7 @@ public static class BuilderExtensions
     public static (IResourceBuilder<InfisicalResource> infisical, IResourceBuilder<PostgresDatabaseResource> postgres, IResourceBuilder<RedisResource> cache) AddInfisicalWithDependencies(
         this IDistributedApplicationBuilder builder,
         [ResourceName] string name = "infisical",
-        int? port = null,
+        int? port = 8080,
         string imageTag = "latest")
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -79,7 +106,10 @@ public static class BuilderExtensions
 
         var cache = builder.AddRedis($"{name}-cache");
 
-        var infisical = ConfigureInfisical(builder, postgres, cache, name, port, imageTag);
+        var dbUri = postgres.Resource.UriExpression;
+        var redisUri = cache.Resource.UriExpression;
+
+        var infisical = ConfigureInfisical(builder, postgres, cache, dbUri, redisUri, name, port, imageTag);
 
         return (infisical, postgres, cache);
     }
@@ -109,7 +139,10 @@ public static class BuilderExtensions
 
         var cache = builder.AddValkey($"{name}-cache");
 
-        var infisical = ConfigureInfisical(builder, postgres, cache, name, port, imageTag);
+        var dbUri = postgres.Resource.UriExpression;
+        var redisUri = cache.Resource.UriExpression;
+
+        var infisical = ConfigureInfisical(builder, postgres, cache, dbUri, redisUri, name, port, imageTag);
 
         return (infisical, postgres, cache);
     }
@@ -131,7 +164,7 @@ public static class BuilderExtensions
     /// <returns>A resource builder for the Infisical container.</returns>
     public static IResourceBuilder<InfisicalResource> AddInfisicalUsingResources(
         this IDistributedApplicationBuilder builder,
-        IResourceBuilder<IResourceWithConnectionString> postgres,
+        IResourceBuilder<PostgresDatabaseResource> postgres,
         IResourceBuilder<IResourceWithConnectionString> cache,
         [ResourceName] string name = "infisical",
         int? port = null,
@@ -141,7 +174,17 @@ public static class BuilderExtensions
         ArgumentNullException.ThrowIfNull(postgres);
         ArgumentNullException.ThrowIfNull(cache);
 
-        return ConfigureInfisical(builder, postgres, cache, name, port, imageTag);
+        var dbUri = postgres.Resource.UriExpression;
+        var redisUri = cache.Resource switch
+        {
+            RedisResource redis => redis.UriExpression,
+            ValkeyResource valkey => valkey.UriExpression,
+            _ => throw new InvalidOperationException(
+                $"Unsupported cache resource type '{cache.Resource.GetType().Name}'. " +
+                "Infisical requires a redis:// URI; pass a RedisResource or ValkeyResource.")
+        };
+
+        return ConfigureInfisical(builder, postgres, cache, dbUri, redisUri, name, port, imageTag);
     }
 
     /// <summary>
@@ -275,10 +318,138 @@ public static class BuilderExtensions
         return builder;
     }
 
+    /// <summary>
+    /// Configures SMTP settings on the Infisical container. Infisical requires SMTP to send
+    /// invitation emails, password resets, and email verification codes.
+    /// <para>
+    /// Sensitive values (<c>SMTP_PASSWORD</c>) are injected as secret
+    /// <see cref="ParameterResource"/> instances so they are masked in the Aspire dashboard
+    /// and logs rather than being exposed as plain-text environment variables.
+    /// </para>
+    /// </summary>
+    /// <param name="builder">The Infisical resource builder.</param>
+    /// <param name="host">SMTP server host (e.g., <c>smtp.gmail.com</c>).</param>
+    /// <param name="port">SMTP server port (e.g., <c>587</c>).</param>
+    /// <param name="username">SMTP username for authentication.</param>
+    /// <param name="password">SMTP password for authentication. Will be stored as a secret parameter.</param>
+    /// <param name="fromAddress">The <c>from</c> address used when sending emails.</param>
+    /// <param name="fromName">The <c>from</c> display name used when sending emails. Defaults to <c>Infisical</c>.</param>
+    /// <param name="secure">If true, sets <c>SMTP_SECURE=true</c> (use TLS/SSL).</param>
+    /// <param name="requireTls">If true, sets <c>SMTP_REQUIRE_TLS=true</c>.</param>
+    /// <param name="ignoreTls">If true, sets <c>SMTP_IGNORE_TLS=true</c>.</param>
+    /// <param name="tlsRejectUnauthorized">
+    /// If <c>false</c>, Infisical will accept the SMTP server's TLS certificate even if it
+    /// is self-signed or otherwise untrusted (sets <c>SMTP_TLS_REJECT_UNAUTHORIZED=false</c>).
+    /// Useful for local development against self-signed dev SMTP servers (e.g. <c>smtp4dev</c>).
+    /// Do NOT use in production.
+    /// </param>
+    /// <returns>The resource builder for chaining.</returns>
+    public static IResourceBuilder<InfisicalResource> WithSmtp(
+        this IResourceBuilder<InfisicalResource> builder,
+        string host,
+        int port,
+        string? username,
+        string? password,
+        string fromAddress,
+        string fromName = "Infisical",
+        bool? secure = null,
+        bool? requireTls = null,
+        bool? ignoreTls = null,
+        bool? tlsRejectUnauthorized = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrEmpty(host);
+        ArgumentException.ThrowIfNullOrEmpty(fromAddress);
+
+        builder = builder
+            .WithEnvironment("SMTP_HOST", host)
+            .WithEnvironment("SMTP_PORT", port.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            .WithEnvironment("SMTP_FROM_ADDRESS", fromAddress)
+            .WithEnvironment("SMTP_FROM_NAME", fromName);
+
+        if (!string.IsNullOrEmpty(username))
+        {
+            builder = builder.WithEnvironment("SMTP_USERNAME", username);
+        }
+
+        if (!string.IsNullOrEmpty(password))
+        {
+            var passwordParam = builder.ApplicationBuilder.AddParameter(
+                $"{builder.Resource.Name}-smtp-password",
+                password,
+                secret: true);
+            builder = builder.WithEnvironment("SMTP_PASSWORD", passwordParam);
+        }
+
+        if (secure.HasValue)
+        {
+            builder = builder.WithEnvironment("SMTP_SECURE", secure.Value.ToString().ToLowerInvariant());
+        }
+
+        if (requireTls.HasValue)
+        {
+            builder = builder.WithEnvironment("SMTP_REQUIRE_TLS", requireTls.Value.ToString().ToLowerInvariant());
+        }
+
+        if (ignoreTls.HasValue)
+        {
+            builder = builder.WithEnvironment("SMTP_IGNORE_TLS", ignoreTls.Value.ToString().ToLowerInvariant());
+        }
+
+        if (tlsRejectUnauthorized.HasValue)
+        {
+            builder = builder.WithEnvironment("SMTP_TLS_REJECT_UNAUTHORIZED", tlsRejectUnauthorized.Value.ToString().ToLowerInvariant());
+        }
+
+        return builder;
+    }
+
+    /// <summary>
+    /// Configures SMTP settings on the Infisical container by reading values from the
+    /// <c>Infisical:Smtp</c> AppHost configuration section.
+    /// <para>
+    /// Required keys: <c>Host</c>, <c>Port</c>, <c>FromAddress</c>.
+    /// Optional keys: <c>Username</c>, <c>Password</c>, <c>FromName</c> (defaults to <c>Infisical</c>),
+    /// <c>Secure</c>, <c>RequireTls</c>, <c>IgnoreTls</c>.
+    /// </para>
+    /// </summary>
+    /// <param name="builder">The Infisical resource builder.</param>
+    /// <returns>The resource builder for chaining.</returns>
+    public static IResourceBuilder<InfisicalResource> WithSmtpFromConfiguration(
+        this IResourceBuilder<InfisicalResource> builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        var smtp = builder.ApplicationBuilder.Configuration.GetSection("Infisical:Smtp");
+        if (!smtp.Exists())
+        {
+            throw new InvalidOperationException(
+                "Infisical:Smtp configuration section is required when calling WithSmtpFromConfiguration.");
+        }
+
+        var host = smtp.GetValue<string>("Host")
+                   ?? throw new InvalidOperationException("Infisical:Smtp:Host configuration is required.");
+        var port = smtp.GetValue<int?>("Port")
+                   ?? throw new InvalidOperationException("Infisical:Smtp:Port configuration is required.");
+        var username = smtp.GetValue<string>("Username");
+        var password = smtp.GetValue<string>("Password");
+        var fromAddress = smtp.GetValue<string>("FromAddress")
+                          ?? throw new InvalidOperationException("Infisical:Smtp:FromAddress configuration is required.");
+        var fromName = smtp.GetValue<string>("FromName") ?? "Infisical";
+        var secure = smtp.GetValue<bool?>("Secure");
+        var requireTls = smtp.GetValue<bool?>("RequireTls");
+        var ignoreTls = smtp.GetValue<bool?>("IgnoreTls");
+        var tlsRejectUnauthorized = smtp.GetValue<bool?>("TlsRejectUnauthorized");
+
+        return builder.WithSmtp(host, port, username, password, fromAddress, fromName, secure, requireTls, ignoreTls, tlsRejectUnauthorized);
+    }
+
     private static IResourceBuilder<InfisicalResource> ConfigureInfisical(
         IDistributedApplicationBuilder builder,
-        IResourceBuilder<IResourceWithConnectionString> postgres,
-        IResourceBuilder<IResourceWithConnectionString> cache,
+        IResourceBuilder<IResource> postgres,
+        IResourceBuilder<IResource> cache,
+        ReferenceExpression dbUri,
+        ReferenceExpression redisUri,
         string name,
         int? port,
         string imageTag)
@@ -288,17 +459,59 @@ public static class BuilderExtensions
         var infisical = new InfisicalResource(name);
         BindClientConfiguration(builder, infisical);
 
+        // Aspire's default Postgres / Redis containers do not enable TLS, but Infisical's
+        // database client (knex/pg) and ioredis may attempt to negotiate TLS depending on
+        // the URI / runtime. To avoid `self-signed certificate` / `DEPTH_ZERO_SELF_SIGNED_CERT`
+        // and similar errors against the local dev containers we explicitly:
+        //   - append `sslmode=disable` to the Postgres URI because the Aspire Postgres
+        //     container does not enable TLS at all; node-postgres would otherwise attempt
+        //     SSL and fail with "The server does not support SSL connections". Using
+        //     `disable` (instead of `no-verify`) ensures the client doesn't try TLS.
+        //   - set `NODE_TLS_REJECT_UNAUTHORIZED=0` as a belt-and-suspenders fallback for any
+        //     other outbound TLS Infisical performs against self-signed dev services
+        //     (Redis/Valkey, SMTP). NEVER use this in production.
+        var dbUriWithSsl = ReferenceExpression.Create($"{dbUri}?sslmode=disable");
+
         var resourceBuilder = builder.AddResource(infisical)
             .WithImage("infisical/infisical", imageTag)
             .WithHttpEndpoint(port: port, targetPort: 8080, name: InfisicalResource.HttpEndpointName)
             .WithEnvironment("ENCRYPTION_KEY", settings.EncryptionKey)
             .WithEnvironment("AUTH_SECRET", settings.AuthSecret)
-            .WithEnvironment("DB_CONNECTION_URI", postgres)
-            .WithEnvironment("REDIS_URL", cache)
-            .WithEnvironment("SITE_URL", settings.SiteUrl)
-            .WithEnvironment("TELEMETRY_ENABLED", settings.TelemetryEnabled.ToString().ToLowerInvariant())
-            .WaitFor(postgres)
-            .WaitFor(cache);
+            .WithEnvironment(ctx => ctx.EnvironmentVariables["DB_CONNECTION_URI"] = dbUriWithSsl)
+            .WithEnvironment(ctx => ctx.EnvironmentVariables["REDIS_URL"] = redisUri)
+            .WithEnvironment("NODE_TLS_REJECT_UNAUTHORIZED", "0")
+            .WithEnvironment("TELEMETRY_ENABLED", settings.TelemetryEnabled.ToString().ToLowerInvariant());
+
+        // SITE_URL must be a stable URL that the user's browser can reach AND that Infisical
+        // itself can use to build links in emails / OAuth callbacks. Aspire's proxied endpoint
+        // (the one exposed via the dashboard) cannot be used here because:
+        //   1. It is not known until the AppHost wires up endpoints, and Infisical reads
+        //      SITE_URL once at boot to run DB migrations - using a ReferenceExpression that
+        //      depends on the Infisical resource's own endpoint causes a circular reference.
+        //   2. The proxied host (e.g. localhost:randomPort) is not reachable from inside the
+        //      Infisical container when it tries to resolve its own SITE_URL.
+        // Therefore we only honor an explicit Infisical:SiteUrl from configuration; if not set,
+        // we fall back to a sensible default that the user is expected to override via
+        // WithSiteUrl(...) once they know the host port they want to expose.
+        if (!string.IsNullOrEmpty(settings.SiteUrl))
+        {
+            resourceBuilder = resourceBuilder.WithEnvironment("SITE_URL", settings.SiteUrl);
+        }
+        else
+        {
+            resourceBuilder = resourceBuilder.WithEnvironment("SITE_URL", "http://localhost:8080");
+
+        }
+
+        if (postgres is IResourceBuilder<IResourceWithWaitSupport> pgWait)
+        {
+            resourceBuilder = resourceBuilder.WaitFor(pgWait);
+        }
+
+        if (cache is IResourceBuilder<IResourceWithWaitSupport> cacheWait)
+        {
+            resourceBuilder = resourceBuilder.WaitFor(cacheWait);
+        }
 
         return resourceBuilder;
     }
@@ -340,7 +553,11 @@ public static class BuilderExtensions
                              "Infisical:AuthSecret configuration is required. " +
                              "Generate one with: openssl rand -base64 32");
 
-        var siteUrl = infisicalConfig.GetValue<string>("SiteUrl") ?? "http://localhost:8080";
+        // Note: SiteUrl is intentionally optional and has no default. Aspire's proxied
+        // endpoint cannot be used as Infisical's SITE_URL (see ConfigureInfisical for details),
+        // so we leave it empty unless the user explicitly configures it via Infisical:SiteUrl
+        // or WithSiteUrl(...). Infisical itself will fall back to its own default when unset.
+        var siteUrl = infisicalConfig.GetValue<string>("SiteUrl") ?? string.Empty;
         var telemetryEnabled = infisicalConfig.GetValue<bool?>("TelemetryEnabled") ?? false;
 
         return new InfisicalSettings(encryptionKey, authSecret, siteUrl, telemetryEnabled);

@@ -13,8 +13,10 @@
     <ProjectReference Include="..\Bielu.Aspire.Common.Example.Blazor.ServiceDefaults\Bielu.Aspire.Common.Example.Blazor.ServiceDefaults.csproj" />
     <ProjectReference Include="..\Bielu.Aspire.Common.Example.Blazor.Web\Bielu.Aspire.Common.Example.Blazor.Web.csproj" />
     <ProjectReference Include="..\Bielu.Aspire.Resources\Bielu.Aspire.Resources.csproj"  IsAspireProjectResource="false" />
+    <ProjectReference Include="..\Bielu.Aspire.Infisical\Bielu.Aspire.Infisical.csproj" IsAspireProjectResource="false" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.Docker" />
     <PackageReference Include="Aspire.Hosting.PostgreSQL" />
     <PackageReference Include="Aspire.Hosting.Redis" />
     <PackageReference Include="Aspire.Hosting.Valkey" />

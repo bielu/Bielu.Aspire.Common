@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
+using Aspire.Hosting.ApplicationModel.Docker; // Required for DockerfileBuildAnnotation
 using Aspire.Hosting.Lifecycle;
 using Aspire.Hosting.Publishing; // Required for ManifestPublishingContext
 
@@ -147,6 +148,62 @@ public static class DockerfileImageExtensions
         builder.WaitFor(imageResource);
 
         return builder;
+    }
+
+    // -------------------------------------------------------------------------
+    // 4. AddContainer with DockerfileImageResource
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Adds a container resource to the application, using a <see cref="DockerfileImageResource"/>
+    /// as its image source. This configures the container to be built from the specified Dockerfile.
+    /// </summary>
+    /// <param name="builder">The <see cref="IDistributedApplicationBuilder"/>.</param>
+    /// <param name="name">The name of the resource.</param>
+    /// <param name="dockerfileImageResourceBuilder">The <see cref="IResourceBuilder{DockerfileImageResource}"/>
+    /// that defines the Dockerfile build process.</param>
+    /// <returns>The <see cref="IResourceBuilder{ContainerResource}"/> for chaining.</returns>
+    [Experimental("ASPIREPIPELINES003")]
+    public static IResourceBuilder<ContainerResource> AddContainer(
+        this IDistributedApplicationBuilder builder,
+        [ResourceName] string name,
+        IResourceBuilder<DockerfileImageResource> dockerfileImageResourceBuilder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(dockerfileImageResourceBuilder);
+
+        var dockerfileResource = dockerfileImageResourceBuilder.Resource;
+
+        // Create a new ContainerResource with a placeholder image name.
+        // The image will be properly configured by WithDockerfile and WithImage.
+        var containerBuilder = builder.AddContainer(name, "placeholder");
+
+        // Configure the container to be built from the DockerfileImageResource's details
+        containerBuilder.WithDockerfile(
+            dockerfileResource.ContextPath,
+            dockerfileResource.DockerfilePath,
+            dockerfileResource.Target);
+
+        // Add build arguments
+        if (dockerfileResource.BuildArgs is { Count: > 0 })
+        {
+            foreach (var arg in dockerfileResource.BuildArgs)
+            {
+                // Use the public WithBuildArg method
+                containerBuilder.WithBuildArg(arg.Key, arg.Value);
+            }
+        }
+
+        // Set the final image name using WithImage.
+        // This will add/update the ContainerImageAnnotation with the correct image reference.
+        containerBuilder.WithImage(dockerfileResource.GetFullImageName().ValueExpression);
+
+        // Add a dependency from the new ContainerResource to the DockerfileImageResource
+        // This ensures the DockerfileImageResource is built before the ContainerResource starts.
+        containerBuilder.WithReference(dockerfileImageResourceBuilder);
+
+        return containerBuilder;
     }
 
     // -------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 
 namespace Bielu.Aspire.Resources.Containers;
@@ -10,7 +11,7 @@ namespace Bielu.Aspire.Resources.Containers;
 /// <param name="dockerfilePath">Absolute path to the Dockerfile.</param>
 /// <param name="contextPath">Absolute path to the build context directory.</param>
 public sealed class DockerfileImageResource(string name, string dockerfilePath, string contextPath)
-    : Resource(name)
+    : Resource(name), IResourceWithServiceDiscovery
 {
     /// <summary>Absolute path to the Dockerfile.</summary>
     public string DockerfilePath { get; } = dockerfilePath;
