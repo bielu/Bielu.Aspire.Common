@@ -11,6 +11,7 @@
     <PackageVersion Include="Aspire.Hosting.Valkey" Version="13.2.4" />
     <PackageVersion Include="Bielu.StaticCode.Analyzers" Version="1.0.0-beta.639117906913283672" />
     <PackageVersion Include="JJConsulting.Infisical" Version="1.0.0" />
+    <PackageVersion Include="Infisical.Sdk" Version="3.0.4" />
     <PackageVersion Include="Bielu.Common.Kiota" Version="1.0.0-beta.638962526632712959" />
     <PackageVersion Include="Bielu.Forms.Umbraco.Licensing" Version="1.0.0-beta.638961648445457506" />
     <PackageVersion Include="bielu.SchemaGenerator.Build" Version="1.0.3" />

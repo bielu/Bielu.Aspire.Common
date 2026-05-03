@@ -277,45 +277,71 @@ public static class BuilderExtensions
             .WithReference(infisical)
             .WaitFor(infisical);
 
-        if (!string.IsNullOrEmpty(clientConfig.ProjectId))
-        {
-            builder = builder.WithEnvironment("Infisical__Client__ProjectId", clientConfig.ProjectId);
-        }
+        var isPublishMode = infisical.ApplicationBuilder.ExecutionContext.IsPublishMode;
+        var resourceName = infisical.Resource.Name;
 
-        if (!string.IsNullOrEmpty(clientConfig.Environment))
-        {
-            builder = builder.WithEnvironment("Infisical__Client__Environment", clientConfig.Environment);
-        }
+        // In publish mode, all values are exposed as Aspire parameters (so they appear in the
+        // generated manifest and can be supplied at deploy time) instead of being baked in as
+        // literal environment variables. In run mode, literals are used directly for convenience.
+        builder = ApplyClientEnv(builder, infisical, isPublishMode,
+            "Infisical__Client__ProjectId", $"{resourceName}-infisical-client-project-id",
+            clientConfig.ProjectId, secret: false);
 
-        if (!string.IsNullOrEmpty(clientConfig.SecretPath))
-        {
-            builder = builder.WithEnvironment("Infisical__Client__SecretPath", clientConfig.SecretPath);
-        }
+        builder = ApplyClientEnv(builder, infisical, isPublishMode,
+            "Infisical__Client__Environment", $"{resourceName}-infisical-client-environment",
+            clientConfig.Environment, secret: false);
 
-        if (!string.IsNullOrEmpty(clientConfig.ServiceToken))
-        {
-            var serviceTokenParam = infisical.ApplicationBuilder.AddParameter(
-                $"{infisical.Resource.Name}-infisical-client-service-token",
-                clientConfig.ServiceToken,
-                secret: true);
-            builder = builder.WithEnvironment("Infisical__Client__ServiceToken", serviceTokenParam);
-        }
+        builder = ApplyClientEnv(builder, infisical, isPublishMode,
+            "Infisical__Client__SecretPath", $"{resourceName}-infisical-client-secret-path",
+            clientConfig.SecretPath, secret: false);
 
-        if (!string.IsNullOrEmpty(clientConfig.ClientId))
-        {
-            builder = builder.WithEnvironment("Infisical__Client__ClientId", clientConfig.ClientId);
-        }
+        builder = ApplyClientEnv(builder, infisical, isPublishMode,
+            "Infisical__Client__ServiceToken", $"{resourceName}-infisical-client-service-token",
+            clientConfig.ServiceToken, secret: true);
 
-        if (!string.IsNullOrEmpty(clientConfig.ClientSecret))
-        {
-            var clientSecretParam = infisical.ApplicationBuilder.AddParameter(
-                $"{infisical.Resource.Name}-infisical-client-secret",
-                clientConfig.ClientSecret,
-                secret: true);
-            builder = builder.WithEnvironment("Infisical__Client__ClientSecret", clientSecretParam);
-        }
+        builder = ApplyClientEnv(builder, infisical, isPublishMode,
+            "Infisical__Client__ClientId", $"{resourceName}-infisical-client-id",
+            clientConfig.ClientId, secret: false);
+
+        builder = ApplyClientEnv(builder, infisical, isPublishMode,
+            "Infisical__Client__ClientSecret", $"{resourceName}-infisical-client-secret",
+            clientConfig.ClientSecret, secret: true);
 
         return builder;
+    }
+
+    private static IResourceBuilder<T> ApplyClientEnv<T>(
+        IResourceBuilder<T> builder,
+        IResourceBuilder<InfisicalResource> infisical,
+        bool isPublishMode,
+        string envName,
+        string parameterName,
+        string? value,
+        bool secret)
+        where T : IResourceWithEnvironment, IResourceWithWaitSupport
+    {
+        if (isPublishMode)
+        {
+            // In publish mode, always expose as a parameter so the value is supplied at deploy time
+            // rather than being captured from the AppHost configuration.
+            var parameter = secret
+                ? infisical.ApplicationBuilder.AddParameter(parameterName, secret: true)
+                : infisical.ApplicationBuilder.AddParameter(parameterName);
+            return builder.WithEnvironment(envName, parameter);
+        }
+
+        if (string.IsNullOrEmpty(value))
+        {
+            return builder;
+        }
+
+        if (secret)
+        {
+            var parameter = infisical.ApplicationBuilder.AddParameter(parameterName, value, secret: true);
+            return builder.WithEnvironment(envName, parameter);
+        }
+
+        return builder.WithEnvironment(envName, value);
     }
 
     /// <summary>

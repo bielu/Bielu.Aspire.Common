@@ -8,7 +8,12 @@
 
     <ItemGroup>
       <PackageReference Include="JJConsulting.Infisical" />
+      <PackageReference Include="Infisical.Sdk" />
       <PackageReference Include="Microsoft.Extensions.Hosting" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <FrameworkReference Include="Microsoft.AspNetCore.App" />
     </ItemGroup>
 
 </Project>
