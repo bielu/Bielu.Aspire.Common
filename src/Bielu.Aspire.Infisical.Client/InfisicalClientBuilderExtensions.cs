@@ -206,7 +206,10 @@ public static class InfisicalClientBuilderExtensions
             SecretPath = section["SecretPath"],
             ServiceToken = section["ServiceToken"],
             ClientId = section["ClientId"],
-            ClientSecret = section["ClientSecret"]
+            ClientSecret = section["ClientSecret"],
+            SslProjectId = section["SslProjectId"],
+            SslEnvironment = section["SslEnvironment"],
+            SslSecretPath = section["SslSecretPath"]
         };
         configureSettings?.Invoke(settings);
 

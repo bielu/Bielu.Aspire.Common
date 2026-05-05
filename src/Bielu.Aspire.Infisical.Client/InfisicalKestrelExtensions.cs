@@ -78,6 +78,68 @@ public static class InfisicalKestrelExtensions
     }
 
     /// <summary>
+    /// Configures Kestrel to use HTTPS with a PFX certificate fetched from Infisical, using
+    /// the project, environment, and secret path resolved from <paramref name="settings"/>.
+    /// <para>
+    /// When <see cref="InfisicalClientSettings.SslProjectId"/>,
+    /// <see cref="InfisicalClientSettings.SslEnvironment"/>, or
+    /// <see cref="InfisicalClientSettings.SslSecretPath"/> are set, they are used to fetch the
+    /// certificate; otherwise the corresponding application-level values
+    /// (<see cref="InfisicalClientSettings.ProjectId"/>, etc.) are used. This supports topologies
+    /// where TLS/SSL secrets live in a separate Infisical project from the application secrets.
+    /// </para>
+    /// </summary>
+    /// <param name="listenOptions">The Kestrel listen options.</param>
+    /// <param name="client">An authenticated <see cref="InfisicalClient"/>.</param>
+    /// <param name="settings">The Infisical client settings used to resolve the SSL project/env/path.</param>
+    /// <param name="pfxSecretName">The Infisical secret name holding the Base64-encoded PFX.</param>
+    /// <param name="passwordSecretName">
+    /// The Infisical secret name holding the PFX password. When <c>null</c>, no password is used.
+    /// </param>
+    /// <param name="protocols">Optional HTTP protocols to enable on this endpoint.</param>
+    /// <param name="configureHttps">Optional callback to further configure <see cref="HttpsConnectionAdapterOptions"/>.</param>
+    /// <returns>The <see cref="ListenOptions"/> for chaining.</returns>
+    public static ListenOptions UseHttpsFromInfisical(
+        this ListenOptions listenOptions,
+        InfisicalClient client,
+        InfisicalClientSettings settings,
+        string pfxSecretName,
+        string? passwordSecretName = null,
+        HttpProtocols? protocols = null,
+        Action<HttpsConnectionAdapterOptions>? configureHttps = null)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        var projectId = settings.EffectiveSslProjectId;
+        var environment = settings.EffectiveSslEnvironment;
+        var secretPath = settings.EffectiveSslSecretPath ?? "/";
+
+        if (string.IsNullOrEmpty(projectId))
+        {
+            throw new InvalidOperationException(
+                "Infisical SSL project ID is not configured. Set 'Infisical:Client:SslProjectId' " +
+                "(or 'Infisical:Client:ProjectId' as a fallback).");
+        }
+
+        if (string.IsNullOrEmpty(environment))
+        {
+            throw new InvalidOperationException(
+                "Infisical SSL environment is not configured. Set 'Infisical:Client:SslEnvironment' " +
+                "(or 'Infisical:Client:Environment' as a fallback).");
+        }
+
+        return listenOptions.UseHttpsFromInfisical(
+            client,
+            pfxSecretName,
+            passwordSecretName,
+            projectId,
+            environment,
+            secretPath,
+            protocols,
+            configureHttps);
+    }
+
+    /// <summary>
     /// Loads an <see cref="X509Certificate2"/> from Infisical secrets. The PFX secret value
     /// is expected to be Base64 encoded.
     /// </summary>

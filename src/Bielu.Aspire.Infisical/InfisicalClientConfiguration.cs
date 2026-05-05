@@ -44,4 +44,23 @@ public sealed class InfisicalClientConfiguration
     /// When set, <see cref="ClientId"/> and <see cref="ClientSecret"/> are ignored.
     /// </summary>
     public string? ServiceToken { get; set; }
+
+    /// <summary>
+    /// Gets or sets the Infisical project ID that holds TLS/SSL certificate secrets,
+    /// when those are stored in a different project than the application secrets.
+    /// When <c>null</c>, <see cref="ProjectId"/> is used as a fallback.
+    /// </summary>
+    public string? SslProjectId { get; set; }
+
+    /// <summary>
+    /// Gets or sets the environment slug used when fetching TLS/SSL certificate secrets.
+    /// When <c>null</c>, <see cref="Environment"/> is used as a fallback.
+    /// </summary>
+    public string? SslEnvironment { get; set; }
+
+    /// <summary>
+    /// Gets or sets the secret path used when fetching TLS/SSL certificate secrets.
+    /// When <c>null</c>, <see cref="SecretPath"/> is used as a fallback.
+    /// </summary>
+    public string? SslSecretPath { get; set; }
 }

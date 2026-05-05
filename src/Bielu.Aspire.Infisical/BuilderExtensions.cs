@@ -267,7 +267,10 @@ public static class BuilderExtensions
             SecretPath = resourceConfig.SecretPath,
             ClientId = resourceConfig.ClientId,
             ClientSecret = resourceConfig.ClientSecret,
-            ServiceToken = resourceConfig.ServiceToken
+            ServiceToken = resourceConfig.ServiceToken,
+            SslProjectId = resourceConfig.SslProjectId,
+            SslEnvironment = resourceConfig.SslEnvironment,
+            SslSecretPath = resourceConfig.SslSecretPath
         };
 
         // Allow per-service overrides.
@@ -306,6 +309,18 @@ public static class BuilderExtensions
         builder = ApplyClientEnv(builder, infisical, isPublishMode,
             "Infisical__Client__ClientSecret", $"{resourceName}-infisical-client-secret",
             clientConfig.ClientSecret, secret: true);
+
+        builder = ApplyClientEnv(builder, infisical, isPublishMode,
+            "Infisical__Client__SslProjectId", $"{resourceName}-infisical-client-ssl-project-id",
+            clientConfig.SslProjectId, secret: false);
+
+        builder = ApplyClientEnv(builder, infisical, isPublishMode,
+            "Infisical__Client__SslEnvironment", $"{resourceName}-infisical-client-ssl-environment",
+            clientConfig.SslEnvironment, secret: false);
+
+        builder = ApplyClientEnv(builder, infisical, isPublishMode,
+            "Infisical__Client__SslSecretPath", $"{resourceName}-infisical-client-ssl-secret-path",
+            clientConfig.SslSecretPath, secret: false);
 
         return builder;
     }
