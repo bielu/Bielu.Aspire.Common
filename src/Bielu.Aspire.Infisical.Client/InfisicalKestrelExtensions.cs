@@ -140,9 +140,18 @@ public static class InfisicalKestrelExtensions
     }
 
     /// <summary>
-    /// Loads an <see cref="X509Certificate2"/> from Infisical secrets. The PFX secret value
-    /// is expected to be Base64 encoded.
+    /// Loads an <see cref="X509Certificate2"/> from Infisical secrets. The certificate secret
+    /// value may be either a Base64-encoded PFX/PKCS#12 blob or a PEM-encoded certificate
+    /// (optionally with the private key in the same PEM bundle, or a separate PEM key in
+    /// <paramref name="passwordSecretName"/>'s sibling — see remarks).
     /// </summary>
+    /// <remarks>
+    /// When the secret value contains a PEM block (e.g. <c>-----BEGIN CERTIFICATE-----</c>),
+    /// the loader treats it as PEM. If the same secret also contains a <c>-----BEGIN ... PRIVATE KEY-----</c>
+    /// block (as Infisical's PKI module emits when bundling cert+key), it is combined automatically.
+    /// Otherwise the value is interpreted as Base64-encoded PKCS#12 and <paramref name="passwordSecretName"/>
+    /// is used as the PFX password.
+    /// </remarks>
     public static async Task<X509Certificate2> LoadCertificateAsync(
         InfisicalClient client,
         string pfxSecretName,
@@ -170,15 +179,55 @@ public static class InfisicalKestrelExtensions
                 $"Infisical secret '{pfxSecretName}' not found or empty in project '{projectId}', environment '{environment}', path '{secretPath}'.");
         }
 
+        var rawValue = pfxSecret.SecretValue;
+
+        // Detect PEM (Infisical's PKI / certificate module returns PEM, not Base64 PFX).
+        if (LooksLikePem(rawValue))
+        {
+            string? keyPem = ExtractPrivateKeyPem(rawValue);
+            string certPem = ExtractCertificatePem(rawValue) ?? rawValue;
+
+            // If the cert PEM didn't include a private key, look for one in the companion secret.
+            if (keyPem is null && !string.IsNullOrEmpty(passwordSecretName))
+            {
+                var keySecret = await client.Secrets().GetAsync(new GetSecretOptions
+                {
+                    SecretName = passwordSecretName,
+                    ProjectId = projectId,
+                    EnvironmentSlug = environment,
+                    SecretPath = secretPath
+                }).ConfigureAwait(false);
+
+                if (keySecret is not null && LooksLikePem(keySecret.SecretValue))
+                {
+                    keyPem = keySecret.SecretValue;
+                }
+            }
+
+            if (keyPem is null)
+            {
+                throw new InvalidOperationException(
+                    $"Infisical secret '{pfxSecretName}' contains a PEM certificate but no private key was found. " +
+                    $"Either include the private-key PEM block in the same secret, or provide the key PEM via '{passwordSecretName}'.");
+            }
+
+            using var ephemeral = X509Certificate2.CreateFromPem(certPem, keyPem);
+
+            // Round-trip through PKCS#12 so SChannel/Kestrel can use the key on Windows.
+            return X509CertificateLoader.LoadPkcs12(
+                ephemeral.Export(X509ContentType.Pkcs12),
+                password: null);
+        }
+
         byte[] pfxBytes;
         try
         {
-            pfxBytes = Convert.FromBase64String(pfxSecret.SecretValue);
+            pfxBytes = Convert.FromBase64String(rawValue);
         }
         catch (FormatException ex)
         {
             throw new InvalidOperationException(
-                $"Infisical secret '{pfxSecretName}' is not a valid Base64-encoded PFX value.", ex);
+                $"Infisical secret '{pfxSecretName}' is neither a PEM-encoded certificate nor a valid Base64-encoded PFX value.", ex);
         }
 
         string? password = null;
@@ -196,5 +245,40 @@ public static class InfisicalKestrelExtensions
         }
 
         return X509CertificateLoader.LoadPkcs12(pfxBytes, password);
+    }
+
+    private static bool LooksLikePem(string? value)
+        => !string.IsNullOrEmpty(value) && value.Contains("-----BEGIN ", StringComparison.Ordinal);
+
+    private static string? ExtractCertificatePem(string pem)
+    {
+        const string begin = "-----BEGIN CERTIFICATE-----";
+        const string end = "-----END CERTIFICATE-----";
+        var start = pem.IndexOf(begin, StringComparison.Ordinal);
+        if (start < 0) return null;
+        var stop = pem.IndexOf(end, start, StringComparison.Ordinal);
+        if (stop < 0) return null;
+        return pem.Substring(start, stop - start + end.Length);
+    }
+
+    private static string? ExtractPrivateKeyPem(string pem)
+    {
+        // Matches PRIVATE KEY, RSA PRIVATE KEY, EC PRIVATE KEY, ENCRYPTED PRIVATE KEY, etc.
+        var beginIdx = pem.IndexOf("-----BEGIN ", StringComparison.Ordinal);
+        while (beginIdx >= 0)
+        {
+            var lineEnd = pem.IndexOf("-----", beginIdx + "-----BEGIN ".Length, StringComparison.Ordinal);
+            if (lineEnd < 0) return null;
+            var label = pem.Substring(beginIdx + "-----BEGIN ".Length, lineEnd - (beginIdx + "-----BEGIN ".Length));
+            if (label.Contains("PRIVATE KEY", StringComparison.Ordinal))
+            {
+                var endLabel = "-----END " + label + "-----";
+                var endIdx = pem.IndexOf(endLabel, StringComparison.Ordinal);
+                if (endIdx < 0) return null;
+                return pem.Substring(beginIdx, endIdx - beginIdx + endLabel.Length);
+            }
+            beginIdx = pem.IndexOf("-----BEGIN ", lineEnd, StringComparison.Ordinal);
+        }
+        return null;
     }
 }
