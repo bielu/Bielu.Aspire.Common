@@ -281,7 +281,12 @@ public static class BuilderExtensions
             .WaitFor(infisical);
 
         var isPublishMode = infisical.ApplicationBuilder.ExecutionContext.IsPublishMode;
-        var resourceName = infisical.Resource.Name;
+        // Parameter names must be unique per consumer resource; otherwise registering the
+        // same Infisical client on multiple resources would attempt to add duplicate parameters
+        // to the AppHost ("A resource with the name '...' already exists"). We therefore key
+        // parameter names on the consumer (target) resource name rather than on the Infisical
+        // resource name.
+        var resourceName = builder.Resource.Name;
 
         // In publish mode, all values are exposed as Aspire parameters (so they appear in the
         // generated manifest and can be supplied at deploy time) instead of being baked in as
@@ -339,9 +344,7 @@ public static class BuilderExtensions
         {
             // In publish mode, always expose as a parameter so the value is supplied at deploy time
             // rather than being captured from the AppHost configuration.
-            var parameter = secret
-                ? infisical.ApplicationBuilder.AddParameter(parameterName, secret: true)
-                : infisical.ApplicationBuilder.AddParameter(parameterName);
+            var parameter = GetOrAddParameter(infisical.ApplicationBuilder, parameterName, value: null, secret: secret);
             return builder.WithEnvironment(envName, parameter);
         }
 
@@ -352,11 +355,37 @@ public static class BuilderExtensions
 
         if (secret)
         {
-            var parameter = infisical.ApplicationBuilder.AddParameter(parameterName, value, secret: true);
+            var parameter = GetOrAddParameter(infisical.ApplicationBuilder, parameterName, value, secret: true);
             return builder.WithEnvironment(envName, parameter);
         }
 
         return builder.WithEnvironment(envName, value);
+    }
+
+    private static IResourceBuilder<ParameterResource> GetOrAddParameter(
+        IDistributedApplicationBuilder appBuilder,
+        string parameterName,
+        string? value,
+        bool secret)
+    {
+        // If a parameter with this name was already added (e.g. WithInfisicalClient was called
+        // multiple times for the same target resource, or another caller registered the same
+        // parameter), reuse it instead of attempting to add a duplicate which would throw.
+        var existing = appBuilder.Resources.OfType<ParameterResource>()
+            .FirstOrDefault(r => string.Equals(r.Name, parameterName, StringComparison.Ordinal));
+        if (existing is not null)
+        {
+            return appBuilder.CreateResourceBuilder(existing);
+        }
+
+        if (value is null)
+        {
+            return secret
+                ? appBuilder.AddParameter(parameterName, secret: true)
+                : appBuilder.AddParameter(parameterName);
+        }
+
+        return appBuilder.AddParameter(parameterName, value, secret: secret);
     }
 
     /// <summary>
