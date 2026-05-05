@@ -223,6 +223,38 @@ The following configuration keys are read from the `Infisical` section (e.g. `ap
 | `SiteUrl` | | `http://localhost:8080` |
 | `TelemetryEnabled` | | `false` |
 
+### Kestrel HTTPS from Infisical PKI
+
+Infisical's **PKI / Certificates** module doesn't store certificates under a user-defined name —
+each certificate is issued for a **Subscriber**, identified by `SubscriberName`. Use these
+extensions when you want Kestrel to consume a PKI-issued certificate directly (no PFX upload):
+
+```csharp
+builder.WebHost.ConfigureKestrel((context, kestrel) =>
+{
+    var infisical = kestrel.ApplicationServices.GetRequiredService<InfisicalClient>();
+
+    kestrel.ListenAnyIP(443, listen =>
+    {
+        // Use the latest already-issued certificate for the subscriber:
+        listen.UseHttpsFromInfisicalPki(
+            client:         infisical,
+            subscriberName: "my-api.example.com",
+            protocols:      HttpProtocols.Http1AndHttp2);
+
+        // Or issue a fresh certificate at startup:
+        // listen.IssueHttpsFromInfisicalPki(infisical, "my-api.example.com");
+    });
+});
+```
+
+If your subscriber lives in a different Infisical project than the one resolved from the client's
+auth context, pass it explicitly via the `projectId` parameter.
+
+> Use `UseHttpsFromInfisical` (secret-based) when the certificate is stored as a Base64-encoded
+> PFX in Infisical Secrets, and `UseHttpsFromInfisicalPki` when it is managed by Infisical's PKI
+> module.
+
 ### Reverse Proxy Endpoint Hostname
 
 Override the target hostname for an existing endpoint:
