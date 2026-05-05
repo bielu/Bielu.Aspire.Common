@@ -251,9 +251,51 @@ builder.WebHost.ConfigureKestrel((context, kestrel) =>
 If your subscriber lives in a different Infisical project than the one resolved from the client's
 auth context, pass it explicitly via the `projectId` parameter.
 
+#### One-line bootstrap
+
+If you don't want to wire up `ConfigureKestrel`/`ListenAnyIP` yourself, use the
+`UseInfisicalPkiHttps` helper directly on `WebApplicationBuilder`:
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+builder.AddInfisicalConfiguration("infisical");
+
+// Binds Kestrel to :443 with HTTPS using the latest cert from the PKI subscriber.
+builder.UseInfisicalPkiHttps("my-api-prod");
+
+// Or issue a fresh certificate at startup, on a custom port:
+// builder.UseInfisicalPkiHttps("my-api-prod", port: 8443, issueNew: true);
+
+var app = builder.Build();
+app.Run();
+```
+
+The `InfisicalClient` is resolved from DI, so `AddInfisicalConfiguration` (or any other
+registration of `InfisicalClient`) must be called first.
+
 > Use `UseHttpsFromInfisical` (secret-based) when the certificate is stored as a Base64-encoded
 > PFX in Infisical Secrets, and `UseHttpsFromInfisicalPki` when it is managed by Infisical's PKI
 > module.
+
+#### Trusting the PKI certificate from `HttpClient`
+
+When *calling* a service that presents an Infisical PKI–issued certificate, you can teach
+every `HttpClient` (including typed clients) to trust it without disabling validation, via
+`ConfigureHttpClientDefaults`:
+
+```csharp
+// Applies to ALL HttpClients created through IHttpClientFactory:
+builder.Services.ConfigureHttpClientDefaultsToTrustInfisicalPki("my-api-prod");
+
+// Or per-client:
+builder.Services.AddHttpClient<MyApiClient>()
+    .TrustInfisicalPkiCertificate("my-api-prod");
+```
+
+The handler trusts the leaf cert by thumbprint and, when available, builds a custom chain
+using the subscriber's issuing CA / chain PEM as the root, so CA-signed certs validate
+without pinning. The system trust store is still honored — only failing validations fall
+back to the Infisical anchors.
 
 ### Reverse Proxy Endpoint Hostname
 
