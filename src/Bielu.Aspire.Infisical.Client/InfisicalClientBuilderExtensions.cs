@@ -192,6 +192,12 @@ public static class InfisicalClientBuilderExtensions
         ArgumentException.ThrowIfNullOrEmpty(connectionName);
 
         var connectionString = builder.Configuration.GetConnectionString(connectionName);
+            var section = builder.Configuration.GetSection(DefaultConfigSectionName);
+
+        if (string.IsNullOrEmpty(connectionString))
+        {
+            connectionString= section["Url"];
+        }
 
         if (string.IsNullOrEmpty(connectionString))
         {
@@ -199,8 +205,6 @@ public static class InfisicalClientBuilderExtensions
                 $"Connection string '{connectionName}' not found. " +
                 "Ensure the Infisical resource is referenced via .WithReference() in the AppHost.");
         }
-
-        var section = builder.Configuration.GetSection(DefaultConfigSectionName);
 
         var settings = new InfisicalClientSettings
         {
