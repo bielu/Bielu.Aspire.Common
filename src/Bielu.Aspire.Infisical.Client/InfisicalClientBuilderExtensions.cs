@@ -134,6 +134,9 @@ public static class InfisicalClientBuilderExtensions
     {
         var (settings, connectionString, _) = ResolveSettings(builder, connectionName, configureSettings);
 
+        // Register settings so other extensions (e.g. HttpClient certificate trust) can resolve them.
+        builder.Services.AddSingleton(settings);
+
         builder.Services.AddSingleton<InfisicalClient>(_ =>
         {
             var sdkSettings = new InfisicalSdkSettingsBuilder()
