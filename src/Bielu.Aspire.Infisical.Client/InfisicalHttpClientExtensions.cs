@@ -81,6 +81,41 @@ public static class InfisicalHttpClientExtensions
     }
 
     /// <summary>
+    /// Configures <b>all</b> <see cref="HttpClient"/> instances created via
+    /// <c>IHttpClientFactory</c> (including typed clients and those configured by
+    /// <c>AddServiceDiscovery</c>) to trust the certificate stored in Infisical under
+    /// <paramref name="pfxSecretName"/>, in addition to the system trust store.
+    /// <para>
+    /// Internally this calls
+    /// <see cref="HttpClientFactoryServiceCollectionExtensions.ConfigureHttpClientDefaults"/>
+    /// and applies <see cref="TrustInfisicalCertificate(IHttpClientBuilder, string, string?)"/>
+    /// to every client, so it composes seamlessly with service discovery and other defaults.
+    /// </para>
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="pfxSecretName">The Infisical secret name holding the Base64-encoded PFX.</param>
+    /// <param name="passwordSecretName">
+    /// Optional Infisical secret name holding the PFX password. When <c>null</c>, no password is used.
+    /// </param>
+    /// <returns>The same service collection for chaining.</returns>
+    public static IServiceCollection ConfigureHttpClientDefaultsToTrustInfisicalCertificate(
+        this IServiceCollection services,
+        string pfxSecretName,
+        string? passwordSecretName = null)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentException.ThrowIfNullOrEmpty(pfxSecretName);
+
+        // Ensure the settings are available for the handler factory.
+        services.AddInfisicalClientSettings();
+
+        services.ConfigureHttpClientDefaults(http =>
+            http.TrustInfisicalCertificate(pfxSecretName, passwordSecretName));
+
+        return services;
+    }
+
+    /// <summary>
     /// Registers <see cref="InfisicalClientSettings"/> as a singleton bound from the
     /// <c>Infisical:Client</c> configuration section, if it has not already been registered.
     /// This is required so that <see cref="TrustInfisicalCertificate"/> can resolve the
