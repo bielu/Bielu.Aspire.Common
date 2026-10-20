@@ -45,6 +45,7 @@ jobs:
       && !contains(needs.*.result, 'failure')
     uses: bielu/bielu.GithubActions.Templates/.github/workflows/releaseNuget.yml@main
     permissions:
+      id-token: write
       contents: read
     secrets:
       NUGET_APIKEY: ${{ secrets.NUGET_APIKEY }}
